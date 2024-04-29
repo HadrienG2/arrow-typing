@@ -3,6 +3,12 @@ name = "arrow-typing"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
+# Needed for most of what we do
+arrow-array = "51.0.0"
+
+# Needed for the i256 type
+arrow-buffer = "51.0.0"
+
+# Needed for the f16 type
+half = "2.4.1"
