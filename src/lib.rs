@@ -73,16 +73,26 @@ pub struct OptionSlice<'a, T: SliceElement> {
     pub is_valid: &'a [bool],
 }
 
-// Allow arrow-supported standard data types to be used in a strongly typed way
-impl ArrayElement for bool {
-    type BuilderBackend = BooleanBuilder;
-    type Value<'a> = Self;
+// Enable strongly typed arrays of primitive types
+macro_rules! impl_primitive_element {
+    ($($element:ty => $builder:ty),*) => {
+        $(
+            impl ArrayElement for $element {
+                type BuilderBackend = $builder;
+                type Value<'a> = Self;
+            }
+            impl SliceElement for $element {
+                type Slice<'a> = &'a [Self];
+                type ExtendFromSliceResult = ();
+            }
+        )*
+    };
 }
-impl SliceElement for bool {
-    type Slice<'a> = &'a [Self];
-    type ExtendFromSliceResult = ();
-}
-//
+impl_primitive_element!(
+    bool => BooleanBuilder
+);
+
+// Enabled strongly typed arrays of optional types
 impl<T: ArrayElement> ArrayElement for Option<T>
 where
     T::BuilderBackend: TypedBackend<Option<T>>,
