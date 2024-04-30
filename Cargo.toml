@@ -4,16 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-# Needed for most of what we do
 arrow-array = "51.0.0"
-
-# Needed for the i256 type
 arrow-buffer = "51.0.0"
-
-# Needed for the ArrowError type
 arrow-schema = "51.0.0"
-
-# Needed for the f16 type
 half = "2.4.1"
 
 [dev-dependencies]
