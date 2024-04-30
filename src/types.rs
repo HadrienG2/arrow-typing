@@ -1,7 +1,19 @@
 //! Strongly typed versions of arrow's DataTypes
 
-use arrow_array::types::IntervalDayTimeType;
+use crate::{ArrayElement, NullableElement};
+use arrow_array::{builder::NullBuilder, types::IntervalDayTimeType};
 use std::{fmt::Debug, marker::PhantomData, num::TryFromIntError};
+
+/// A value that is always null
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct Null;
+//
+impl ArrayElement for Null {
+    type BuilderBackend = NullBuilder;
+    type Value<'a> = Self;
+}
+//
+impl NullableElement for Null {}
 
 /// Date type representing the elapsed time since the UNIX epoch in days
 #[derive(Clone, Copy, Debug)]
