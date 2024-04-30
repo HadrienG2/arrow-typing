@@ -39,7 +39,9 @@ impl<T: ArrayElement> NullableElement for Option<T> where Option<T>: ArrayElemen
 //
 // FIXME: The bound I actually want is `ArrayElement<BuilderBackend:
 //        ExtendFromSlice<Self>>`, use that once associated type bounds are
-//        stable (stabilization PR has landed on nightly at time of writing)
+//        stable (stabilization PR has landed on nightly at time of writing),
+//        and then remove all the unnecessary ExtendFromSlice bounds in
+//        user-visible APIs.
 pub trait SliceElement: ArrayElement {
     /// Slice type used for bulk insertion and readout
     ///
