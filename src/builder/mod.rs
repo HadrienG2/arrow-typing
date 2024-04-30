@@ -165,18 +165,21 @@ mod tests {
     }
 
     /// Check outcome of initializing a TypedBuilder with the default capacity
-    fn check_init_default(builder: &TypedBuilder<impl ArrayElement>) -> TestCaseResult {
-        check_init_with_capacity(builder, builder.capacity())
+    fn check_init_default<T: ArrayElement>() -> TestCaseResult
+    where
+        ConstructorParameters<T>: Default,
+    {
+        let mut builder = TypedBuilder::<T>::new(Default::default());
+        check_init_with_capacity(&builder, builder.capacity())?;
+        builder = TypedBuilder::<T>::default();
+        check_init_with_capacity(&builder, builder.capacity())
     }
 
     #[test]
     fn init_default() -> TestCaseResult {
-        check_init_default(&TypedBuilder::<Null>::new(()))?;
-        check_init_default(&TypedBuilder::<Null>::default())?;
-        check_init_default(&TypedBuilder::<bool>::new(()))?;
-        check_init_default(&TypedBuilder::<bool>::default())?;
-        check_init_default(&TypedBuilder::<Option<bool>>::new(()))?;
-        check_init_default(&TypedBuilder::<Option<bool>>::default())?;
+        check_init_default::<Null>()?;
+        check_init_default::<bool>()?;
+        check_init_default::<Option<bool>>()?;
         Ok(())
     }
 
