@@ -1,4 +1,4 @@
-//! Strongly typed versions of arrow's DataTypes
+//! Strongly typed interface to arrow-rs' [`DataType`]s
 
 use crate::{ArrayElement, NullableElement, SliceElement};
 use arrow_array::{builder::NullBuilder, types::*};
@@ -367,9 +367,10 @@ impl TimeUnit for Nanosecond {
 ///
 /// The type for which this trait is implemented must be a `repr(transparent)`
 /// wrapper over the underlying `ArrowPrimitiveType::NativeType`.
-pub unsafe trait PrimitiveType:
+pub unsafe trait AsArrowPrimitive:
     // TODO: Once Rust's trait solver supports it, use a SliceElement<Value<'_>
-    //       = Self> bound to simplify downstream usage.
+    //       = Self, for<'a> Slice<'a> = &'a [Self]> bound to simplify
+    //       downstream usage and remove the unsafe contract of SliceElement.
     Debug + From<NativeType<Self>> + Into<NativeType<Self>> + SliceElement
 {
     /// Equivalent Arrow primitive type
@@ -379,7 +380,7 @@ pub unsafe trait PrimitiveType:
 macro_rules! unsafe_impl_primitive_type {
     ($($local:ty => $arrow:ty),*) => {
         $(
-            unsafe impl PrimitiveType for $local {
+            unsafe impl AsArrowPrimitive for $local {
                 type ArrowPrimitive = $arrow;
             }
         )*
@@ -419,4 +420,4 @@ unsafe_impl_primitive_type!(
 
 // Easy access to the NativeType backing a PrimitiveType
 pub(crate) type NativeType<T> =
-    <<T as PrimitiveType>::ArrowPrimitive as ArrowPrimitiveType>::Native;
+    <<T as AsArrowPrimitive>::ArrowPrimitive as ArrowPrimitiveType>::Native;

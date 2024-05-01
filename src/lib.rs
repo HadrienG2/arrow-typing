@@ -4,7 +4,7 @@
 pub mod builder;
 pub mod types;
 
-use crate::types::{
+use crate::types::primitive::{
     Date32, Date64, Duration, IntervalDayTime, IntervalMonthDayNano, IntervalYearMonth,
     Microsecond, Millisecond, Nanosecond, Second, Time,
 };

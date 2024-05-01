@@ -141,7 +141,7 @@ type BuilderBackend<T> = <T as ArrayElement>::BuilderBackend;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{types::Null, OptionSlice};
+    use crate::{types::primitive::Null, OptionSlice};
     use proptest::{prelude::*, sample::SizeRange, test_runner::TestCaseResult};
 
     /// Maximum array length/capacity used in unit tests
