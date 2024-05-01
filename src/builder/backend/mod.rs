@@ -1,0 +1,76 @@
+//! Strong typing layer on top of Arrow builders
+
+mod bool;
+mod null;
+mod primitive;
+
+// TODO: Still need to interface remaining API of PrimitiveBuilder and then...
+//
+// - FixedSizeBinaryBuilder
+// - FixedSizeListBuilder
+// - GenericByteBuilder
+// - GenericByteDictionaryBuilder
+// - GenericByteRunBuilder
+// - GenericByteViewBuilder
+// - GenericListBuilder
+// - MapBuilder
+// - PrimitiveDictionaryBuilder
+// - PrimitiveRunBuilder
+// - StructBuilder
+// - UnionBuilder
+//
+// I should probably start with PrimitiveBuilder, then ListBuilder, then
+// StructBuilder, then UnionBuilder, and finish with special cases.
+
+use crate::{ArrayElement, SliceElement};
+use arrow_array::builder::ArrayBuilder;
+use std::fmt::Debug;
+
+/// Arrow builder that can accept strongly typed entries of type `T`
+pub trait TypedBackend<T: ArrayElement + ?Sized>: Backend {
+    /// Append a single element into the builder
+    fn push(&mut self, v: T::Value<'_>);
+}
+
+/// Bulk-insertion of [`SliceElement`]s into corresponding arrow arrays
+//
+// --- Implementation notes ---
+//
+// In the interest of reducing the number of traits that maintainers of this
+// code need to juggle with, this should arguably be an optional method of
+// [`TypedBackend`] with a `where T: SliceElement` bound.
+//
+// Alas rustc's trait solver is not yet ready for this because until
+// https://github.com/rust-lang/rust/issues/48214 is resolved, it will results
+// in `TypedBackend` being unimplementable when T **does not** implement
+// `SliceElement`. Therefore, a separate trait is needed for now.
+pub trait ExtendFromSlice<T: SliceElement + ?Sized>: TypedBackend<T> {
+    /// Append values into the builder in bulk
+    fn extend_from_slice(&mut self, s: T::Slice<'_>) -> T::ExtendFromSliceResult;
+}
+
+/// Subset of `TypedBackend<T>` functionality that does not depend on `T`
+pub trait Backend: ArrayBuilder + Debug {
+    /// Constructor parameters other than inner array builders
+    type ConstructorParameters;
+
+    /// Create a new builder with no underlying buffer allocation
+    fn new(params: Self::ConstructorParameters) -> Self;
+
+    /// Create a new builder with space for `capacity` elements
+    fn with_capacity(params: Self::ConstructorParameters, capacity: usize) -> Self;
+
+    /// Number of elements the array can hold without reallocating
+    ///
+    /// In the case of types that are internally stored as multiple columnar
+    /// buffers, like structs or unions, a lower bound on the capacity of all
+    /// underlying columns is returned.
+    ///
+    /// In the case of arrays of lists, capacity is to be understood as the
+    /// number of sublists that the array can hold, not the cumulative number of
+    /// elements across all sublists.
+    fn capacity(&self) -> usize;
+
+    /// Efficiently append `n` null values into the builder
+    fn extend_with_nulls(&mut self, n: usize);
+}
