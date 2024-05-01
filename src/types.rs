@@ -25,6 +25,7 @@ pub struct Date<T>(T);
 //
 // One direction of conversion is easy...
 impl<T> From<T> for Date<T> {
+    #[inline(always)]
     fn from(value: T) -> Self {
         Self(value)
     }
@@ -35,12 +36,14 @@ pub type Date32 = Date<i32>;
 pub type Date64 = Date<i64>;
 //
 impl From<Date32> for i32 {
+    #[inline(always)]
     fn from(value: Date32) -> Self {
         value.0
     }
 }
 //
 impl From<Date64> for i64 {
+    #[inline(always)]
     fn from(value: Date64) -> Self {
         value.0
     }
@@ -56,12 +59,14 @@ impl From<Date64> for i64 {
 pub struct Duration<Unit: TimeUnit>(i64, PhantomData<Unit>);
 //
 impl<Unit: TimeUnit> From<i64> for Duration<Unit> {
+    #[inline(always)]
     fn from(value: i64) -> Self {
         Self(value, PhantomData)
     }
 }
 //
 impl<Unit: TimeUnit> From<Duration<Unit>> for i64 {
+    #[inline(always)]
     fn from(value: Duration<Unit>) -> Self {
         value.0
     }
@@ -158,12 +163,14 @@ impl IntervalDayTime {
 }
 //
 impl From<i64> for IntervalDayTime {
+    #[inline(always)]
     fn from(value: i64) -> Self {
         Self(value)
     }
 }
 //
 impl From<IntervalDayTime> for i64 {
+    #[inline(always)]
     fn from(value: IntervalDayTime) -> Self {
         value.0
     }
@@ -195,12 +202,14 @@ impl IntervalMonthDayNano {
 }
 //
 impl From<i128> for IntervalMonthDayNano {
+    #[inline(always)]
     fn from(value: i128) -> Self {
         Self(value)
     }
 }
 //
 impl From<IntervalMonthDayNano> for i128 {
+    #[inline(always)]
     fn from(value: IntervalMonthDayNano) -> Self {
         value.0
     }
@@ -234,12 +243,14 @@ impl IntervalYearMonth {
 }
 //
 impl From<i32> for IntervalYearMonth {
+    #[inline(always)]
     fn from(value: i32) -> Self {
         Self(value)
     }
 }
 //
 impl From<IntervalYearMonth> for i32 {
+    #[inline(always)]
     fn from(value: IntervalYearMonth) -> Self {
         value.0
     }
@@ -251,48 +262,56 @@ impl From<IntervalYearMonth> for i32 {
 pub struct Time<Unit: TimeUnit>(<Unit as TimeUnit>::TimeStorage);
 //
 impl From<i32> for Time<Second> {
+    #[inline(always)]
     fn from(value: i32) -> Self {
         Self(value)
     }
 }
 //
 impl From<i32> for Time<Millisecond> {
+    #[inline(always)]
     fn from(value: i32) -> Self {
         Self(value)
     }
 }
 //
 impl From<i64> for Time<Microsecond> {
+    #[inline(always)]
     fn from(value: i64) -> Self {
         Self(value)
     }
 }
 //
 impl From<i64> for Time<Nanosecond> {
+    #[inline(always)]
     fn from(value: i64) -> Self {
         Self(value)
     }
 }
 //
 impl From<Time<Second>> for i32 {
+    #[inline(always)]
     fn from(value: Time<Second>) -> Self {
         value.0
     }
 }
 //
 impl From<Time<Millisecond>> for i32 {
+    #[inline(always)]
     fn from(value: Time<Millisecond>) -> Self {
         value.0
     }
 }
 //
 impl From<Time<Microsecond>> for i64 {
+    #[inline(always)]
     fn from(value: Time<Microsecond>) -> Self {
         value.0
     }
 }
 //
 impl From<Time<Nanosecond>> for i64 {
+    #[inline(always)]
     fn from(value: Time<Nanosecond>) -> Self {
         value.0
     }
