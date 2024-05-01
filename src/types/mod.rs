@@ -1,3 +1,3 @@
-//! Strongly typed versions of arrow's DataTypes
+//! Rust equivalents of Arrow types
 
 pub mod primitive;

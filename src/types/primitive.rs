@@ -1,7 +1,9 @@
 //! Strongly typed interface to arrow-rs' [`DataType`]s
 
-use crate::{ArrayElement, NullableElement, SliceElement};
+use crate::{ArrayElement, SliceElement};
 use arrow_array::{builder::NullBuilder, types::*};
+#[cfg(doc)]
+use arrow_schema::DataType;
 use half::f16;
 use std::{fmt::Debug, marker::PhantomData, num::TryFromIntError};
 
@@ -15,8 +17,6 @@ impl ArrayElement for Null {
     type BuilderBackend = NullBuilder;
     type Value<'a> = Self;
 }
-//
-impl NullableElement for Null {}
 
 /// Date type representing the elapsed time since the UNIX epoch in days
 #[derive(Clone, Copy, Debug)]
@@ -367,21 +367,21 @@ impl TimeUnit for Nanosecond {
 ///
 /// The type for which this trait is implemented must be a `repr(transparent)`
 /// wrapper over the underlying `ArrowPrimitiveType::NativeType`.
-pub unsafe trait AsArrowPrimitive:
+pub unsafe trait PrimitiveType:
     // TODO: Once Rust's trait solver supports it, use a SliceElement<Value<'_>
     //       = Self, for<'a> Slice<'a> = &'a [Self]> bound to simplify
     //       downstream usage and remove the unsafe contract of SliceElement.
     Debug + From<NativeType<Self>> + Into<NativeType<Self>> + SliceElement
 {
     /// Equivalent Arrow primitive type
-    type ArrowPrimitive: ArrowPrimitiveType + Debug;
+    type Arrow: ArrowPrimitiveType + Debug;
 }
 //
 macro_rules! unsafe_impl_primitive_type {
     ($($local:ty => $arrow:ty),*) => {
         $(
-            unsafe impl AsArrowPrimitive for $local {
-                type ArrowPrimitive = $arrow;
+            unsafe impl PrimitiveType for $local {
+                type Arrow = $arrow;
             }
         )*
     };
@@ -419,5 +419,4 @@ unsafe_impl_primitive_type!(
 );
 
 // Easy access to the NativeType backing a PrimitiveType
-pub(crate) type NativeType<T> =
-    <<T as AsArrowPrimitive>::ArrowPrimitive as ArrowPrimitiveType>::Native;
+pub(crate) type NativeType<T> = <<T as PrimitiveType>::Arrow as ArrowPrimitiveType>::Native;

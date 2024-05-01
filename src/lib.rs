@@ -4,12 +4,12 @@
 pub mod builder;
 pub mod types;
 
+#[cfg(doc)]
+use crate::types::primitive::PrimitiveType;
 use crate::types::primitive::{
     Date32, Date64, Duration, IntervalDayTime, IntervalMonthDayNano, IntervalYearMonth,
-    Microsecond, Millisecond, Nanosecond, Second, Time,
+    Microsecond, Millisecond, Nanosecond, Null, Second, Time,
 };
-#[cfg(doc)]
-use crate::{builder::TypedBuilder, types::Null};
 use arrow_array::builder::{
     BooleanBuilder, Date32Builder, Date64Builder, DurationMicrosecondBuilder,
     DurationMillisecondBuilder, DurationNanosecondBuilder, DurationSecondBuilder, Float16Builder,
@@ -23,7 +23,9 @@ use builder::backend::TypedBackend;
 use half::f16;
 use std::fmt::Debug;
 
-/// Strongly typed data which can be stored as an arrow array element
+pub use builder::TypedBuilder;
+
+/// Strongly typed data which can be stored as an Arrow array element
 pub trait ArrayElement: Send + Sync + 'static {
     /// Array builder implementation
     type BuilderBackend: builder::backend::TypedBackend<Self>;
@@ -45,20 +47,23 @@ pub trait ArrayElement: Send + Sync + 'static {
 /// options of valid array element types. It enables efficient bulk insertion of
 /// null values via [`TypedBuilder::extend_with_nulls()`].
 pub trait NullableElement: ArrayElement {}
+//
+impl NullableElement for Null {}
+//
 impl<T: ArrayElement> NullableElement for Option<T> where Option<T>: ArrayElement {}
 
 /// [`ArrayElement`] which can be read or written in bulk using slices
 ///
 /// # Safety
 ///
-/// If this trait is implemented on a primitive type, then Slice<'a> **must**
-/// be defined as &[Self].
+/// If this trait is implemented on a [primitive type](PrimitiveType), then the
+/// `Slice` associated type **must** be set to `&[Self]`.
 //
 // FIXME: The bound I actually want is `ArrayElement<BuilderBackend:
 //        ExtendFromSlice<Self>>`, use that once associated type bounds are
 //        stable (stabilization PR has landed on nightly at time of writing),
-//        and then remove all the unnecessary ExtendFromSlice bounds in
-//        user-visible APIs.
+//        and then remove all the unnecessary ExtendFromSlice bounds in builder
+//        backends that leak into user-visible APIs.
 pub unsafe trait SliceElement: ArrayElement {
     /// Slice type used for bulk insertion and readout
     ///
@@ -66,15 +71,15 @@ pub unsafe trait SliceElement: ArrayElement {
     /// types, efficiency constraints may dictate a different layout.
     ///
     /// For example, nullable primitive types like `Option<u16>` are
-    /// bulk-manipulated using [`OptionSlice`] batches. And tuple types like
-    /// `(T, U, V)` are bulk-manipulated using `(&[T], &[U], &[V])` batches.
+    /// bulk-manipulated using [`OptionSlice`]s. And tuple types like `(T, U,
+    /// V)` are bulk-manipulated using `(&[T], &[U], &[V])` batches.
     type Slice<'a>;
 
     /// Return type of [`TypedBuilder::extend_from_slice()`].
     ///
     /// Bulk insertion always succeeds for simple types. But for complex types
     /// which need composite slice types like `(&[T], &[U])`, bulk insertion can
-    /// fail with `ArrowError` if the inner slices have unequal length.
+    /// fail with [`ArrowError`] if the inner slices have unequal length.
     ///
     /// Accordingly, the return type of `extend_from_slice()` is `()` for
     /// simple slices, and `Result<(), ArrowError>` for composite slices.

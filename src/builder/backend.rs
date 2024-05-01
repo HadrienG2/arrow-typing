@@ -1,7 +1,7 @@
-//! Strongly typed abstraction layer over arrow array builders
+//! Strong typing layer on top of Arrow builders
 
 use crate::{
-    types::primitive::{AsArrowPrimitive, NativeType, Null},
+    types::primitive::{NativeType, Null, PrimitiveType},
     ArrayElement, OptionSlice, SliceElement,
 };
 use arrow_array::{
@@ -157,12 +157,12 @@ impl<T: ArrowPrimitiveType + Debug> Backend for PrimitiveBuilder<T> {
     }
 }
 //
-impl<T: AsArrowPrimitive> TypedBackend<T> for PrimitiveBuilder<T::ArrowPrimitive>
+impl<T: PrimitiveType> TypedBackend<T> for PrimitiveBuilder<T::Arrow>
 where
     // FIXME: Remove this bound once the Rust trait system supports adding the
     //        appropriate bounds on PrimitiveType to let rustc figure out that
     //        T::Value<'_> is just T for primitive types.
-    for<'a> T::Value<'a>: AsArrowPrimitive + From<NativeType<T>> + Into<NativeType<T>>,
+    for<'a> T::Value<'a>: PrimitiveType + From<NativeType<T>> + Into<NativeType<T>>,
 {
     #[inline]
     fn push(&mut self, v: T::Value<'_>) {
@@ -170,12 +170,12 @@ where
     }
 }
 //
-impl<T: AsArrowPrimitive> TypedBackend<Option<T>> for PrimitiveBuilder<T::ArrowPrimitive>
+impl<T: PrimitiveType> TypedBackend<Option<T>> for PrimitiveBuilder<T::Arrow>
 where
     // FIXME: Remove these bounds once the Rust trait system supports adding the
     //        appropriate bounds on PrimitiveType to let rustc figure out that
     //        T::Value<'_> is just T for primitive types.
-    for<'a> T::Value<'a>: AsArrowPrimitive + From<NativeType<T>> + Into<NativeType<T>>,
+    for<'a> T::Value<'a>: PrimitiveType + From<NativeType<T>> + Into<NativeType<T>>,
     <T as ArrayElement>::BuilderBackend: TypedBackend<Option<T>>,
 {
     #[inline]
@@ -184,13 +184,12 @@ where
     }
 }
 //
-impl<T: AsArrowPrimitive<ExtendFromSliceResult = ()>> ExtendFromSlice<T>
-    for PrimitiveBuilder<T::ArrowPrimitive>
+impl<T: PrimitiveType<ExtendFromSliceResult = ()>> ExtendFromSlice<T> for PrimitiveBuilder<T::Arrow>
 where
     // FIXME: Remove these bounds once the Rust trait system supports adding the
     //        appropriate bounds on PrimitiveType to let rustc figure out that
     //        T::Value<'_> is just T for primitive types.
-    for<'a> T::Value<'a>: AsArrowPrimitive + From<NativeType<T>> + Into<NativeType<T>>,
+    for<'a> T::Value<'a>: PrimitiveType + From<NativeType<T>> + Into<NativeType<T>>,
 {
     fn extend_from_slice(&mut self, s: T::Slice<'_>) {
         // SAFETY: This transmute is safe because...
@@ -204,13 +203,13 @@ where
     }
 }
 //
-impl<T: AsArrowPrimitive<ExtendFromSliceResult = Result<(), ArrowError>>> ExtendFromSlice<Option<T>>
-    for PrimitiveBuilder<T::ArrowPrimitive>
+impl<T: PrimitiveType<ExtendFromSliceResult = Result<(), ArrowError>>> ExtendFromSlice<Option<T>>
+    for PrimitiveBuilder<T::Arrow>
 where
     // FIXME: Remove these bounds once the Rust trait system supports adding the
     //        appropriate bounds on PrimitiveType to let rustc figure out that
     //        T::Value<'_> is just T for primitive types.
-    for<'a> T::Value<'a>: AsArrowPrimitive + From<NativeType<T>> + Into<NativeType<T>>,
+    for<'a> T::Value<'a>: PrimitiveType + From<NativeType<T>> + Into<NativeType<T>>,
     <T as ArrayElement>::BuilderBackend: TypedBackend<Option<T>>,
 {
     fn extend_from_slice(&mut self, slice: OptionSlice<'_, T>) -> Result<(), ArrowError> {

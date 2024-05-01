@@ -1,4 +1,4 @@
-//! Strongly typed arrow array builder
+//! Strongly typed array builder
 
 pub(crate) mod backend;
 
@@ -7,9 +7,7 @@ use crate::{ArrayElement, NullableElement, SliceElement};
 use arrow_array::builder::ArrayBuilder;
 use std::fmt::Debug;
 
-// === Strongly typed array building user interface ===
-
-/// Common facade over type-safe builders for all data types
+/// Strongly typed array builder
 #[derive(Debug)]
 pub struct TypedBuilder<T: ArrayElement>(BuilderBackend<T>);
 //
@@ -40,9 +38,9 @@ impl<T: ArrayElement> TypedBuilder<T> {
     /// Append a single value into the builder
     ///
     /// For types with a complex internal structure, such row-wise insertion may
-    /// not be optimally efficient. Therefore, if you intend to insert many
-    /// values, it is advised that you do not do so by calling this method in a
-    /// loop, but instead look into the bulk insertion methods below.
+    /// be inefficient. Therefore, if you intend to insert many values, it is
+    /// advised that you do not do so by calling this method in a loop, but
+    /// instead look into the bulk insertion methods below.
     #[inline]
     pub fn push(&mut self, value: T::Value<'_>) {
         self.0.push(value)
@@ -50,7 +48,10 @@ impl<T: ArrayElement> TypedBuilder<T> {
 
     /// Efficiently append multiple values into the builder
     ///
-    /// See [`SliceElement`] for more information.
+    /// This operation is available for all element types that implement
+    /// [`SliceElement`]. See the documentation of this trait for more
+    /// information on what you can expect from `T::Slice` and
+    /// `T::ExtendFromSliceResult`.
     pub fn extend_from_slice(&mut self, s: T::Slice<'_>) -> T::ExtendFromSliceResult
     where
         T: SliceElement,
@@ -71,10 +72,10 @@ where
 {
     /// Efficiently append multiple non-null values into the builder
     ///
-    /// This method is available for every `TypedBuilder` of `Option<T>` where
-    /// `T` is a [`SliceElement`]. Given a slice of `T`, it lets you do the
-    /// optimized equivalent of calling `push(Some(value))` in a loop for each
-    /// value inside of the slice.
+    /// This operation is available for every `TypedBuilder` of `Option<T>`
+    /// where `T` is a [`SliceElement`]. Given a slice of `T`, it lets you do
+    /// the optimized equivalent of calling `push(Some(value))` in a loop for
+    /// each value inside of the slice.
     pub fn extend_from_value_slice(&mut self, vs: T::Slice<'_>) -> T::ExtendFromSliceResult {
         self.0.extend_from_slice(vs)
     }
@@ -82,6 +83,9 @@ where
 //
 impl<T: ArrayElement> TypedBuilder<T> {
     /// Efficiently append multiple null values into the builder
+    ///
+    /// This operation is available when T is a [nullable
+    /// type](NullableElement), i.e. `Null` or `Option<T>`.
     pub fn extend_with_nulls(&mut self, n: usize)
     where
         T: NullableElement,
@@ -99,10 +103,10 @@ impl<T: ArrayElement> TypedBuilder<T> {
         self.0.is_empty()
     }
 
+    // TODO: Type-safe access to the validity bitmap for builders that have it?
+
     // TODO: Some equivalent of ArrayBuilder::finish() and finish_cloned that
     //       returns a TypedArrayRef
-
-    // TODO: Type-safe access to the validity bitmap?
 }
 //
 impl<T: ArrayElement> Default for TypedBuilder<T>
@@ -126,12 +130,13 @@ impl<'a, T: ArrayElement> Extend<T::Value<'a>> for TypedBuilder<T> {
 ///
 /// Arrays of simple types can be built with no extra information. For these
 /// array types the constructor parameters are a simple `()` unit value, and
-/// `TypedBuilder` implements `Default` as an alternative to `new(())`.
+/// `TypedBuilder` implements `Default` as an alternative to the slightly
+/// awkward `new(())` parameter-less constructor.
 ///
 /// However, more advanced array types need constructor parameters. For example,
 /// arrays of fixed-sized lists need an inner sublist size. In this case, those
-/// constructor parameters end up forwarded into the ConstructorParameters that
-/// are passed to `new()`, and `TypedBuilder` will not implement `Default`.
+/// constructor parameters end up forwarded into the `ConstructorParameters`
+/// that are passed to `new()`, and `TypedBuilder` will not implement `Default`.
 pub type ConstructorParameters<T> =
     <<T as ArrayElement>::BuilderBackend as Backend>::ConstructorParameters;
 
