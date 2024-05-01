@@ -160,3 +160,17 @@ where
     type Slice<'a> = OptionSlice<'a, T>;
     type ExtendFromSliceResult = Result<(), ArrowError>;
 }
+
+/// Shared test utilities
+#[cfg(test)]
+mod tests {
+    use proptest::prelude::*;
+
+    /// Maximum array length/capacity used in unit tests
+    pub const MAX_CAPACITY: usize = 256;
+
+    /// Generate a capacity between 0 and MAX_CAPACITY
+    pub fn length_or_capacity() -> impl Strategy<Value = usize> {
+        0..=MAX_CAPACITY
+    }
+}

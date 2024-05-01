@@ -146,19 +146,12 @@ type BuilderBackend<T> = <T as ArrayElement>::BuilderBackend;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{types::primitive::Null, OptionSlice};
     use proptest::{prelude::*, sample::SizeRange, test_runner::TestCaseResult};
 
-    /// Maximum array length/capacity used in unit tests
-    const MAX_CAPACITY: usize = 256;
-
-    /// Generate a capacity between 0 and MAX_CAPACITY
-    fn length_or_capacity() -> impl Strategy<Value = usize> {
-        0..=MAX_CAPACITY
-    }
-
     /// Check outcome of initializing a TypedBuilder with some capacity
-    fn check_init_with_capacity(
+    ///
+    /// This does not work with NullBuilder, for which len == capacity
+    pub fn check_init_with_capacity(
         builder: &TypedBuilder<impl ArrayElement>,
         capacity: usize,
     ) -> TestCaseResult {
@@ -170,7 +163,7 @@ mod tests {
     }
 
     /// Check outcome of initializing a TypedBuilder with the default capacity
-    fn check_init_default<T: ArrayElement>() -> TestCaseResult
+    pub fn check_init_default<T: ArrayElement>() -> TestCaseResult
     where
         ConstructorParameters<T>: Default,
     {
@@ -180,40 +173,11 @@ mod tests {
         check_init_with_capacity(&builder, builder.capacity())
     }
 
-    #[test]
-    fn init_default() -> TestCaseResult {
-        check_init_default::<Null>()?;
-        check_init_default::<bool>()?;
-        check_init_default::<Option<bool>>()?;
-        Ok(())
-    }
-
-    proptest! {
-        #[test]
-        fn init_with_capacity(capacity in length_or_capacity()) {
-            // Null builders have an interesting notion of length + capacity
-            let null_builder = TypedBuilder::<Null>::with_capacity((), capacity);
-            prop_assert_eq!(null_builder.capacity(), capacity);
-            prop_assert_eq!(null_builder.len(), capacity);
-            prop_assert_eq!(null_builder.is_empty(), capacity == 0);
-
-            // Other builders behave more like a Vec would
-            check_init_with_capacity(
-                &TypedBuilder::<bool>::with_capacity((), capacity),
-                capacity
-            )?;
-            check_init_with_capacity(
-                &TypedBuilder::<Option<bool>>::with_capacity((), capacity),
-                capacity
-            )?;
-        }
-    }
-
     /// Check outcome of inserting N values into a newly created TypedBuilder
     ///
     /// This does not work as expected on `TypedBuilder<Null>` because the
     /// notion of length/capacity used by the underlying `NullBuilder` is weird.
-    fn check_extend_outcome(
+    pub fn check_extend_outcome(
         builder: &TypedBuilder<impl ArrayElement>,
         init_capacity: usize,
         num_elements: usize,
@@ -226,7 +190,7 @@ mod tests {
     }
 
     /// Check outcome of pushing a value into a newly created TypedBuilder
-    fn check_push<T: ArrayElement>(
+    pub fn check_push<T: ArrayElement>(
         init_params: ConstructorParameters<T>,
         init_capacity: usize,
         value: T::Value<'_>,
@@ -236,28 +200,8 @@ mod tests {
         check_extend_outcome(&builder, init_capacity, 1)
     }
 
-    proptest! {
-        #[test]
-        fn push_null(init_capacity in length_or_capacity()) {
-            let mut builder = TypedBuilder::<Null>::with_capacity((), init_capacity);
-            builder.push(Null);
-            prop_assert_eq!(builder.capacity(), init_capacity + 1);
-            prop_assert_eq!(builder.len(), builder.capacity());
-            prop_assert!(!builder.is_empty());
-        }
-
-        #[test]
-        fn push_bool(init_capacity in length_or_capacity(), value: bool) {
-            check_push::<bool>((), init_capacity, value)?;
-        }
-        #[test]
-        fn push_option_bool(init_capacity in length_or_capacity(), value: Option<bool>) {
-            check_push::<Option<bool>>((), init_capacity, value)?;
-        }
-    }
-
     /// Generate building blocks for an OptionSlice<T>
-    fn option_vec<T: SliceElement + Arbitrary>() -> impl Strategy<Value = (Vec<T>, Vec<bool>)> {
+    pub fn option_vec<T: SliceElement + Arbitrary>() -> impl Strategy<Value = (Vec<T>, Vec<bool>)> {
         prop_oneof![
             // Valid OptionSlice
             (0..=SizeRange::default().end_incl()).prop_flat_map(|len| {
@@ -268,71 +212,5 @@ mod tests {
             }),
             any::<(Vec<T>, Vec<bool>)>()
         ]
-    }
-
-    proptest! {
-        #[test]
-        fn extend_from_values_bool(init_capacity in length_or_capacity(), values: Vec<bool>) {
-            let bool_builder = || TypedBuilder::<bool>::with_capacity((), init_capacity);
-            {
-                let mut bool_builder = bool_builder();
-                bool_builder.extend_from_slice(&values);
-                check_extend_outcome(&bool_builder, init_capacity, values.len())?;
-            }
-            {
-                let mut bool_builder = bool_builder();
-                bool_builder.extend(values.iter().copied());
-                check_extend_outcome(&bool_builder, init_capacity, values.len())?;
-            }
-
-            let opt_builder = || TypedBuilder::<Option<bool>>::with_capacity((), init_capacity);
-            {
-                let mut opt_builder = opt_builder();
-                opt_builder.extend_from_value_slice(&values);
-                check_extend_outcome(&opt_builder, init_capacity, values.len())?;
-            }
-            {
-                let mut opt_builder = opt_builder();
-                opt_builder.extend(values.iter().map(|&b| Some(b)));
-                check_extend_outcome(&opt_builder, init_capacity, values.len())?;
-            }
-        }
-
-        #[test]
-        fn extend_from_options_bool(
-            init_capacity in length_or_capacity(),
-            (values, is_valid) in option_vec::<bool>(),
-        ) {
-            let mut builder = TypedBuilder::<Option<bool>>::with_capacity((), init_capacity);
-            let result = builder.extend_from_slice(OptionSlice {
-                values: &values,
-                is_valid: &is_valid,
-            });
-
-            if values.len() != is_valid.len() {
-                prop_assert!(result.is_err());
-                check_init_with_capacity(&builder, init_capacity)?;
-                return Ok(());
-            }
-
-            prop_assert!(result.is_ok());
-            check_extend_outcome(&builder, init_capacity, values.len())?;
-        }
-
-        #[test]
-        fn extend_with_nulls(
-            init_capacity in length_or_capacity(),
-            num_nulls in length_or_capacity()
-        ) {
-            let mut null_builder = TypedBuilder::<Null>::with_capacity((), init_capacity);
-            null_builder.extend_with_nulls(num_nulls);
-            prop_assert!(null_builder.capacity() >= init_capacity.max(num_nulls));
-            prop_assert_eq!(null_builder.len(), null_builder.capacity());
-            prop_assert!(!null_builder.is_empty());
-
-            let mut opt_builder = TypedBuilder::<Option<bool>>::with_capacity((), init_capacity);
-            opt_builder.extend_with_nulls(num_nulls);
-            check_extend_outcome(&opt_builder, init_capacity, num_nulls)?;
-        }
     }
 }
