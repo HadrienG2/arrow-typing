@@ -49,9 +49,16 @@ impl From<Date64> for i64 {
     }
 }
 
-// TODO: Need default const parameters to expose Decimal<T, const
-//       STORAGE_PRECISION = DEFAULT_PRECISION, const STORAGE_SCALE =
-//       DEFAULT_SCALE>
+// TODO: Waiting for generic_const_expr rustc feature to be able to expose the
+//       desired strongly typed version of the Decimal type family:
+//
+//       #[derive(Clone, Copy, Debug)]
+//       #[repr(transparent)]
+//       pub struct Decimal<
+//           T: DecimalRepr,
+//           const PRECISION: u8 = { <T as DecimalRepr>::MAX_PRECISION },
+//           const SCALE: i8 = { <T as DecimalRepr>::DEFAULT_SCALE },
+//       >(T);
 
 /// Measure of elapsed time with a certain integer unit
 #[derive(Clone, Copy, Debug)]
@@ -317,9 +324,16 @@ impl From<Time<Nanosecond>> for i64 {
     }
 }
 
-// TODO: Need more flexibility in const parameters to cleanly represent
-//       Timestamp<Unit, const TIMESTAMP: Option<Arc<str>>> for optional
-//       timezone
+// TODO: Waiting for adt_const_params rustc feature and a constified Arc
+//       constructor to be able to expose the desired strongly typed version of
+//       the Timestamp type family:
+//
+//       #[derive(Clone, Copy, Debug)]
+//       #[repr(transparent)]
+//       pub struct Timestamp<
+//           Unit: TimeUnit,
+//           const TIMESTAMP: Option<Arc<str>> = None,
+//       >(i64);
 
 /// Unit of time
 pub trait TimeUnit {
