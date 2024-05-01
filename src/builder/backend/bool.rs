@@ -1,6 +1,6 @@
 //! Strong typing layer on top of [`BooleanBuilder`]
 
-use super::{Backend, ExtendFromSlice, TypedBackend};
+use super::{Backend, ExtendFromSlice, TypedBackend, ValiditySlice};
 use crate::OptionSlice;
 use arrow_array::builder::BooleanBuilder;
 use arrow_schema::ArrowError;
@@ -22,6 +22,12 @@ impl Backend for BooleanBuilder {
 
     fn extend_with_nulls(&mut self, n: usize) {
         self.append_nulls(n)
+    }
+}
+
+impl ValiditySlice for BooleanBuilder {
+    fn validity_slice(&self) -> Option<&[u8]> {
+        self.validity_slice()
     }
 }
 

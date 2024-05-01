@@ -3,7 +3,9 @@
 pub(crate) mod backend;
 
 use self::backend::{Backend, ExtendFromSlice, TypedBackend};
-use crate::{ArrayElement, NullableElement, SliceElement};
+#[cfg(doc)]
+use crate::types::primitive::PrimitiveType;
+use crate::{validity::ValiditySlice, ArrayElement, NullableElement, SliceElement};
 use arrow_array::builder::ArrayBuilder;
 use std::fmt::Debug;
 
@@ -103,10 +105,25 @@ impl<T: ArrayElement> TypedBuilder<T> {
         self.0.is_empty()
     }
 
-    // TODO: Type-safe access to the validity bitmap for builders that have it?
-
     // TODO: Some equivalent of ArrayBuilder::finish() and finish_cloned that
     //       returns a TypedArrayRef
+}
+//
+impl<T> TypedBuilder<Option<T>>
+where
+    Option<T>: ArrayElement,
+    BuilderBackend<Option<T>>: backend::ValiditySlice,
+{
+    /// Current null buffer / validity slice
+    ///
+    /// This operation is only available on `TypedBuilder`s of optional `bool`s,
+    /// [primitive types](PrimitiveType), bytes and strings.
+    pub fn validity_slice(&self) -> Option<ValiditySlice<'_>> {
+        use backend::ValiditySlice;
+        self.0
+            .validity_slice()
+            .map(|bitmap| crate::validity::ValiditySlice::new(bitmap, self.len()))
+    }
 }
 //
 impl<T: ArrayElement> Default for TypedBuilder<T>

@@ -3,6 +3,7 @@
 
 pub mod builder;
 pub mod types;
+pub mod validity;
 
 #[cfg(doc)]
 use crate::types::primitive::PrimitiveType;

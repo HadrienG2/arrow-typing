@@ -375,7 +375,7 @@ impl TimeUnit for Nanosecond {
 
 // === Equivalent of ArrowPrimitiveType for the types defined in this module ===
 
-/// Mapping from the types defined in this module to [`ArrowPrimitiveType`]
+/// Strong value type with a corresponding [`ArrowPrimitiveType`]
 ///
 /// # Safety
 ///

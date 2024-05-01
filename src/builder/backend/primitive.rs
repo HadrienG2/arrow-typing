@@ -1,6 +1,6 @@
 //! Strong typing layer on top of [`PrimitiveBuilder`]
 
-use super::{Backend, ExtendFromSlice, TypedBackend};
+use super::{Backend, ExtendFromSlice, TypedBackend, ValiditySlice};
 use crate::{
     types::primitive::{NativeType, PrimitiveType},
     ArrayElement, OptionSlice,
@@ -26,6 +26,12 @@ impl<T: ArrowPrimitiveType + Debug> Backend for PrimitiveBuilder<T> {
 
     fn extend_with_nulls(&mut self, n: usize) {
         self.append_nulls(n)
+    }
+}
+
+impl<T: ArrowPrimitiveType + Debug> ValiditySlice for PrimitiveBuilder<T> {
+    fn validity_slice(&self) -> Option<&[u8]> {
+        self.validity_slice()
     }
 }
 

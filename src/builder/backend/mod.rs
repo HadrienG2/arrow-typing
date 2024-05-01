@@ -32,23 +32,6 @@ pub trait TypedBackend<T: ArrayElement + ?Sized>: Backend {
     fn push(&mut self, v: T::Value<'_>);
 }
 
-/// Bulk-insertion of [`SliceElement`]s into corresponding arrow arrays
-//
-// --- Implementation notes ---
-//
-// In the interest of reducing the number of traits that maintainers of this
-// code need to juggle with, this should arguably be an optional method of
-// [`TypedBackend`] with a `where T: SliceElement` bound.
-//
-// Alas rustc's trait solver is not yet ready for this because until
-// https://github.com/rust-lang/rust/issues/48214 is resolved, it will results
-// in `TypedBackend` being unimplementable when T **does not** implement
-// `SliceElement`. Therefore, a separate trait is needed for now.
-pub trait ExtendFromSlice<T: SliceElement + ?Sized>: TypedBackend<T> {
-    /// Append values into the builder in bulk
-    fn extend_from_slice(&mut self, s: T::Slice<'_>) -> T::ExtendFromSliceResult;
-}
-
 /// Subset of `TypedBackend<T>` functionality that does not depend on `T`
 pub trait Backend: ArrayBuilder + Debug {
     /// Constructor parameters other than inner array builders
@@ -73,4 +56,27 @@ pub trait Backend: ArrayBuilder + Debug {
 
     /// Efficiently append `n` null values into the builder
     fn extend_with_nulls(&mut self, n: usize);
+}
+
+/// Access the current null buffer as a slice
+pub trait ValiditySlice: Backend {
+    /// Returns the current null buffer as a slice
+    fn validity_slice(&self) -> Option<&[u8]>;
+}
+
+/// Bulk-insertion of [`SliceElement`]s into corresponding arrow arrays
+//
+// --- Implementation notes ---
+//
+// In the interest of reducing the number of traits that maintainers of this
+// code need to juggle with, this should arguably be an optional method of
+// [`TypedBackend`] with a `where T: SliceElement` bound.
+//
+// Alas rustc's trait solver is not yet ready for this because until
+// https://github.com/rust-lang/rust/issues/48214 is resolved, it will results
+// in `TypedBackend` being unimplementable when T **does not** implement
+// `SliceElement`. Therefore, a separate trait is needed for now.
+pub trait ExtendFromSlice<T: SliceElement + ?Sized>: TypedBackend<T> {
+    /// Append values into the builder in bulk
+    fn extend_from_slice(&mut self, s: T::Slice<'_>) -> T::ExtendFromSliceResult;
 }
