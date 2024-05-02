@@ -96,6 +96,7 @@ mod tests {
         fn push_value(init_capacity in length_or_capacity(), value: bool) {
             check_push::<bool>((), init_capacity, value)?;
         }
+
         #[test]
         fn push_option(init_capacity in length_or_capacity(), value: Option<bool>) {
             check_push::<Option<bool>>((), init_capacity, value)?;
