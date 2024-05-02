@@ -63,7 +63,7 @@ mod tests {
         builder::{
             tests::{
                 check_extend_outcome, check_init_default, check_init_with_capacity, check_push,
-                option_vec,
+                check_validity, option_vec,
             },
             TypedBuilder,
         },
@@ -99,6 +99,7 @@ mod tests {
         #[test]
         fn push_option(init_capacity in length_or_capacity(), value: Option<bool>) {
             check_push::<Option<bool>>((), init_capacity, value)?;
+            check_validity(&TypedBuilder::<Option<bool>>::default(), &[value.is_some()])?;
         }
 
         #[test]
@@ -120,11 +121,13 @@ mod tests {
                 let mut opt_builder = opt_builder();
                 opt_builder.extend_from_value_slice(&values);
                 check_extend_outcome(&opt_builder, init_capacity, values.len())?;
+                check_validity(&opt_builder, &vec![true; values.len()])?;
             }
             {
                 let mut opt_builder = opt_builder();
                 opt_builder.extend(values.iter().map(|&b| Some(b)));
                 check_extend_outcome(&opt_builder, init_capacity, values.len())?;
+                check_validity(&opt_builder, &vec![true; values.len()])?;
             }
         }
 
@@ -147,6 +150,7 @@ mod tests {
 
             prop_assert!(result.is_ok());
             check_extend_outcome(&builder, init_capacity, values.len())?;
+            check_validity(&builder, &is_valid)?;
         }
 
         #[test]
@@ -157,6 +161,7 @@ mod tests {
             let mut opt_builder = TypedBuilder::<Option<bool>>::with_capacity((), init_capacity);
             opt_builder.extend_with_nulls(num_nulls);
             check_extend_outcome(&opt_builder, init_capacity, num_nulls)?;
+            check_validity(&opt_builder, &vec![false; num_nulls])?;
         }
     }
 }

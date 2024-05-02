@@ -89,6 +89,12 @@ impl<'slice> IntoIterator for &'slice ValiditySlice<'slice> {
         self.iter()
     }
 }
+//
+impl PartialEq<&[bool]> for ValiditySlice<'_> {
+    fn eq(&self, other: &&[bool]) -> bool {
+        self.iter().eq(other.iter().copied())
+    }
+}
 
 /// Iterator over the elements of an arrow validity slice
 pub type Iter<'slice> = Take<BitmapIter<'slice>>;
@@ -167,6 +173,7 @@ mod tests {
                 prop_assert!(res.is_err());
                 return Ok(());
             }
+            prop_assert!(res.is_ok());
             let validity = res.unwrap();
 
             prop_assert_eq!(validity.len(), array_len);

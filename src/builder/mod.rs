@@ -230,4 +230,20 @@ mod tests {
             any::<(Vec<T>, Vec<bool>)>()
         ]
     }
+
+    /// Check the validity mask of a TypedBuilder that has it
+    pub fn check_validity<T>(builder: &TypedBuilder<Option<T>>, expected: &[bool]) -> TestCaseResult
+    where
+        Option<T>: ArrayElement,
+        BuilderBackend<Option<T>>: backend::ValiditySlice,
+    {
+        if let Some(validity_slice) = builder.validity_slice() {
+            prop_assert_eq!(validity_slice, expected);
+        } else {
+            prop_assert!(
+                expected.iter().all(|valid| *valid) || expected.iter().all(|valid| !valid)
+            );
+        }
+        Ok(())
+    }
 }
