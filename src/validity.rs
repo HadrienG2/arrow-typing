@@ -201,6 +201,8 @@ mod tests {
             let in_bounds = index < bits.len();
             let validity = ValiditySlice::new(&bitmap, array_len);
 
+            prop_assert_eq!(validity, &bits[..]);
+
             prop_assert_eq!(validity.get(index), bits.get(index).copied());
             let index_res = std::panic::catch_unwind(|| validity.at(index));
             prop_assert_eq!(index_res.ok(), bits.get(index).copied());

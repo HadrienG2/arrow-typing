@@ -20,14 +20,13 @@ use arrow_array::builder::{
     Time64NanosecondBuilder, UInt16Builder, UInt32Builder, UInt64Builder, UInt8Builder,
 };
 use arrow_schema::ArrowError;
-use builder::backend::TypedBackend;
 use half::f16;
 use std::fmt::Debug;
 
 pub use builder::TypedBuilder;
 
 /// Strongly typed data which can be stored as an Arrow array element
-pub trait ArrayElement: Send + Sync + 'static {
+pub trait ArrayElement: Debug + Send + Sync + 'static {
     /// Array builder implementation
     type BuilderBackend: builder::backend::TypedBackend<Self>;
 
@@ -88,12 +87,25 @@ pub unsafe trait SliceElement: ArrayElement {
 }
 
 /// Alternative to `&[Option<T>]` that is friendlier to columnar storage
+#[derive(Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct OptionSlice<'a, T: SliceElement> {
     /// Values that may or may not be valid
     pub values: T::Slice<'a>,
 
     /// Truth that each element of `values` is valid
     pub is_valid: &'a [bool],
+}
+//
+impl<'a, T: SliceElement> Clone for OptionSlice<'a, T>
+where
+    T::Slice<'a>: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            values: self.values.clone(),
+            is_valid: self.is_valid,
+        }
+    }
 }
 
 // Enable strongly typed arrays of primitive types
@@ -104,9 +116,29 @@ macro_rules! unsafe_impl_primitive_element {
                 type BuilderBackend = $builder;
                 type Value<'a> = Self;
             }
+
+            // SAFETY: By construction, it is enforced that Slice is &[Self]
             unsafe impl SliceElement for $element {
                 type Slice<'a> = &'a [Self];
                 type ExtendFromSliceResult = ();
+            }
+
+            // FIXME: I tried to make this blanket-impl'd for Option<T> where
+            //        T::BuilderBackend: TypedBackend<Option<T>>, but this
+            //        caused problems down the line where backends were not
+            //        recognized by the trait solver as implementing
+            //        TypedBackend<Option<T>> because Option<T> did not
+            //        implement ArrayElement. Let's keep this macrofied for now.
+            impl ArrayElement for Option<$element> {
+                type BuilderBackend = $builder;
+                type Value<'a> = Option<$element>;
+            }
+
+            // SAFETY: Option is not a primitive type and is therefore not
+            //         affected by the safety precondition of SliceElement
+            unsafe impl SliceElement for Option<$element> {
+                type Slice<'a> = OptionSlice<'a, $element>;
+                type ExtendFromSliceResult = Result<(), ArrowError>;
             }
         )*
     };
@@ -142,25 +174,6 @@ unsafe_impl_primitive_element!(
     u32 => UInt32Builder,
     u64 => UInt64Builder
 );
-
-// Enabled strongly typed arrays of optional types
-impl<T: ArrayElement> ArrayElement for Option<T>
-where
-    T::BuilderBackend: TypedBackend<Option<T>>,
-{
-    type BuilderBackend = T::BuilderBackend;
-    type Value<'a> = Option<T::Value<'a>>;
-}
-//
-// SAFETY: Option is not a primitive type and is therefore not affected by the
-//         safety precondition of SliceElement on primitive types.
-unsafe impl<T: SliceElement> SliceElement for Option<T>
-where
-    T::BuilderBackend: TypedBackend<Option<T>>,
-{
-    type Slice<'a> = OptionSlice<'a, T>;
-    type ExtendFromSliceResult = Result<(), ArrowError>;
-}
 
 /// Shared test utilities
 #[cfg(test)]

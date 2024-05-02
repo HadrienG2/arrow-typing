@@ -160,15 +160,35 @@ pub type ConstructorParameters<T> =
 /// Shortcut to the arrow builder type used to construct an array of Ts
 type BuilderBackend<T> = <T as ArrayElement>::BuilderBackend;
 
+#[allow(private_bounds)]
 #[cfg(test)]
 mod tests {
+    use crate::OptionSlice;
+
     use super::*;
+    use arrow_schema::ArrowError;
+    use backend::ValiditySlice;
     use proptest::{prelude::*, sample::SizeRange, test_runner::TestCaseResult};
 
-    /// Check outcome of initializing a TypedBuilder with some capacity
+    /// Check the validity mask of a TypedBuilder that has the validity_slice()
+    /// extension
+    pub fn check_validity<T>(builder: &TypedBuilder<Option<T>>, expected: &[bool]) -> TestCaseResult
+    where
+        Option<T>: ArrayElement,
+        BuilderBackend<Option<T>>: ValiditySlice,
+    {
+        if let Some(validity_slice) = builder.validity_slice() {
+            prop_assert_eq!(validity_slice, expected);
+        } else {
+            prop_assert!(expected.iter().all(|valid| *valid));
+        }
+        Ok(())
+    }
+
+    /// Check outcome of initializing a `TypedBuilder` with some capacity
     ///
-    /// This does not work with NullBuilder, for which len == capacity
-    pub fn check_init_with_capacity(
+    /// This does not work with `NullBuilder`, for which `len == capacity`
+    pub fn check_init_with_capacity_outcome(
         builder: &TypedBuilder<impl ArrayElement>,
         capacity: usize,
     ) -> TestCaseResult {
@@ -179,15 +199,53 @@ mod tests {
         Ok(())
     }
 
-    /// Check outcome of initializing a TypedBuilder with the default capacity
+    /// Like `check_init_with_capacity`, but for both `T` and `Option<T>`
+    ///
+    /// For almost every [`ArrayElement`] type `T` with the exception of `Null`,
+    /// `Option<T>` is also an `ArrayElement`.
+    pub fn check_init_with_capacity_optional<T: ArrayElement>(
+        make_init_params: impl Fn() -> ConstructorParameters<T>,
+        capacity: usize,
+    ) -> TestCaseResult
+    where
+        Option<T>: ArrayElement<BuilderBackend = BuilderBackend<T>>,
+    {
+        check_init_with_capacity_outcome(
+            &TypedBuilder::<T>::with_capacity(make_init_params(), capacity),
+            capacity,
+        )?;
+        check_init_with_capacity_outcome(
+            &TypedBuilder::<Option<T>>::with_capacity(make_init_params(), capacity),
+            capacity,
+        )?;
+        Ok(())
+    }
+
+    /// Check outcome of initializing a `TypedBuilder` with the default capacity
     pub fn check_init_default<T: ArrayElement>() -> TestCaseResult
     where
         ConstructorParameters<T>: Default,
     {
         let mut builder = TypedBuilder::<T>::new(Default::default());
-        check_init_with_capacity(&builder, builder.capacity())?;
+        check_init_with_capacity_outcome(&builder, builder.capacity())?;
         builder = TypedBuilder::<T>::default();
-        check_init_with_capacity(&builder, builder.capacity())
+        check_init_with_capacity_outcome(&builder, builder.capacity())?;
+        Ok(())
+    }
+
+    /// Like `check_init_default`, but for both `T` and `Option<T>`
+    ///
+    /// For almost every [`ArrayElement`] type `T` with the exception of `Null`,
+    /// `Option<T>` is also an `ArrayElement`.
+    pub fn check_init_default_optional<T: ArrayElement>() -> TestCaseResult
+    where
+        Option<T>: ArrayElement,
+        ConstructorParameters<T>: Default,
+        ConstructorParameters<Option<T>>: Default,
+    {
+        check_init_default::<T>()?;
+        check_init_default::<Option<T>>()?;
+        Ok(())
     }
 
     /// Check outcome of inserting N values into a newly created TypedBuilder
@@ -214,10 +272,92 @@ mod tests {
     ) -> TestCaseResult {
         let mut builder = TypedBuilder::<T>::with_capacity(init_params, init_capacity);
         builder.push(value);
-        check_extend_outcome(&builder, init_capacity, 1)
+        check_extend_outcome(&builder, init_capacity, 1)?;
+        Ok(())
     }
 
-    /// Generate building blocks for an OptionSlice<T>
+    /// Like `check_push`, but with `Option<T>` and validity bitmap checking
+    pub fn check_push_option<T: ArrayElement>(
+        init_params: ConstructorParameters<Option<T>>,
+        init_capacity: usize,
+        value: Option<T>,
+    ) -> TestCaseResult
+    where
+        Option<T>: ArrayElement,
+        BuilderBackend<Option<T>>: ValiditySlice,
+        for<'a> Option<T>: Into<<Option<T> as ArrayElement>::Value<'a>>,
+    {
+        let mut builder = TypedBuilder::<Option<T>>::with_capacity(init_params, init_capacity);
+        let valid = value.is_some();
+        builder.push(value.into());
+        check_extend_outcome(&builder, init_capacity, 1)?;
+        check_validity(&builder, &[valid])?;
+        Ok(())
+    }
+
+    /// Check outcome of extending a builder of T or Option<T> with a slice of
+    /// values
+    pub fn check_extend_from_values<T: SliceElement>(
+        make_init_params: impl Fn() -> ConstructorParameters<T>,
+        init_capacity: usize,
+        values: T::Slice<'_>,
+    ) -> TestCaseResult
+    where
+        Option<T>: ArrayElement<BuilderBackend = BuilderBackend<T>>,
+        BuilderBackend<T>: ExtendFromSlice<T>,
+        BuilderBackend<Option<T>>: ValiditySlice,
+        for<'a> T::Slice<'a>: Slice<T::Value<'a>> + Clone,
+        for<'a> T::Value<'a>: Clone + Into<<Option<T> as ArrayElement>::Value<'a>>,
+    {
+        let value_builder = || TypedBuilder::<T>::with_capacity(make_init_params(), init_capacity);
+        {
+            let mut value_builder = value_builder();
+            value_builder.extend_from_slice(values.clone());
+            check_extend_outcome(&value_builder, init_capacity, values.slice_len())?;
+        }
+        {
+            let mut value_builder = value_builder();
+            value_builder.extend(values.slice_iter().cloned());
+            check_extend_outcome(&value_builder, init_capacity, values.slice_len())?;
+        }
+
+        let opt_builder =
+            || TypedBuilder::<Option<T>>::with_capacity(make_init_params(), init_capacity);
+        {
+            let mut opt_builder = opt_builder();
+            opt_builder.extend_from_value_slice(values.clone());
+            check_extend_outcome(&opt_builder, init_capacity, values.slice_len())?;
+            check_validity(&opt_builder, &vec![true; values.slice_len()])?;
+        }
+        {
+            let mut opt_builder = opt_builder();
+            opt_builder.extend(values.slice_iter().cloned().map(Into::into));
+            check_extend_outcome(&opt_builder, init_capacity, values.slice_len())?;
+            check_validity(&opt_builder, &vec![true; values.slice_len()])?;
+        }
+        Ok(())
+    }
+    //
+    trait Slice<T>: Clone {
+        fn slice_len(&self) -> usize;
+        fn slice_iter<'self_>(&'self_ self) -> impl Iterator<Item = &T> + 'self_
+        where
+            T: 'self_;
+    }
+    //
+    impl<T> Slice<T> for &[T] {
+        fn slice_len(&self) -> usize {
+            self.len()
+        }
+        fn slice_iter<'self_>(&'self_ self) -> impl Iterator<Item = &T> + 'self_
+        where
+            T: 'self_,
+        {
+            self.iter()
+        }
+    }
+
+    /// Generate building blocks for an `OptionSlice<T>`
     pub fn option_vec<T: SliceElement + Arbitrary>() -> impl Strategy<Value = (Vec<T>, Vec<bool>)> {
         prop_oneof![
             // Valid OptionSlice
@@ -231,19 +371,66 @@ mod tests {
         ]
     }
 
-    /// Check the validity mask of a TypedBuilder that has it
-    pub fn check_validity<T>(builder: &TypedBuilder<Option<T>>, expected: &[bool]) -> TestCaseResult
+    /// Like `option_vec`, but with a custom value generation strategy
+    pub fn option_vec_custom<T: SliceElement, S: Strategy<Value = T>>(
+        strategy: impl Fn() -> S + Copy,
+    ) -> impl Strategy<Value = (Vec<T>, Vec<bool>)> {
+        prop_oneof![
+            // Valid OptionSlice
+            (0..=SizeRange::default().end_incl()).prop_flat_map(move |len| {
+                (
+                    prop::collection::vec(strategy(), len),
+                    prop::collection::vec(any::<bool>(), len),
+                )
+            }),
+            (
+                prop::collection::vec(strategy(), SizeRange::default()),
+                any::<Vec<bool>>(),
+            )
+        ]
+    }
+
+    /// Check `extend_from_slice` on `TypedBuilder<Option<T>>`.
+    pub fn check_extend_from_options<T: SliceElement>(
+        init_params: ConstructorParameters<Option<T>>,
+        init_capacity: usize,
+        slice: OptionSlice<T>,
+    ) -> TestCaseResult
+    where
+        Option<T>: SliceElement<ExtendFromSliceResult = Result<(), ArrowError>>,
+        for<'a> T::Slice<'a>: Slice<T>,
+        for<'a> OptionSlice<'a, T>: Into<<Option<T> as SliceElement>::Slice<'a>>,
+        BuilderBackend<Option<T>>: ExtendFromSlice<Option<T>> + ValiditySlice,
+    {
+        let mut builder = TypedBuilder::<Option<T>>::with_capacity(init_params, init_capacity);
+        let result = builder.extend_from_slice(slice.clone().into());
+
+        if slice.values.slice_len() != slice.is_valid.len() {
+            prop_assert!(result.is_err());
+            check_init_with_capacity_outcome(&builder, init_capacity)?;
+            return Ok(());
+        }
+
+        prop_assert!(result.is_ok());
+        check_extend_outcome(&builder, init_capacity, slice.values.slice_len())?;
+        check_validity(&builder, slice.is_valid)?;
+        Ok(())
+    }
+
+    /// Check `extend_with_nulls` on `TypedBuilder<Option<T>>`
+    pub fn check_extend_with_nulls<T: ArrayElement>(
+        init_params: ConstructorParameters<Option<T>>,
+        init_capacity: usize,
+        num_nulls: usize,
+    ) -> TestCaseResult
     where
         Option<T>: ArrayElement,
-        BuilderBackend<Option<T>>: backend::ValiditySlice,
+        BuilderBackend<Option<T>>: ValiditySlice,
     {
-        if let Some(validity_slice) = builder.validity_slice() {
-            prop_assert_eq!(validity_slice, expected);
-        } else {
-            prop_assert!(
-                expected.iter().all(|valid| *valid) || expected.iter().all(|valid| !valid)
-            );
-        }
+        let mut builder = TypedBuilder::<Option<T>>::with_capacity(init_params, init_capacity);
+        builder.extend_with_nulls(num_nulls);
+        check_extend_outcome(&builder, init_capacity, num_nulls)?;
+        check_validity(&builder, &vec![false; num_nulls])?;
         Ok(())
     }
 }

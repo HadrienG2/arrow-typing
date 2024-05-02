@@ -5,6 +5,8 @@ use arrow_array::{builder::NullBuilder, types::*};
 #[cfg(doc)]
 use arrow_schema::DataType;
 use half::f16;
+#[cfg(any(test, feature = "proptest"))]
+use proptest::prelude::*;
 use std::{fmt::Debug, marker::PhantomData, num::TryFromIntError};
 
 // === Strong value types matching non-std Arrow DataTypes ===
@@ -22,6 +24,15 @@ impl ArrayElement for Null {
 #[derive(Clone, Copy, Debug)]
 #[repr(transparent)]
 pub struct Date<T>(T);
+//
+#[cfg(any(test, feature = "proptest"))]
+impl<T: Arbitrary> Arbitrary for Date<T> {
+    type Parameters = T::Parameters;
+    type Strategy = prop::strategy::Map<T::Strategy, fn(T) -> Self>;
+    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+        T::arbitrary_with(args).prop_map(Self)
+    }
+}
 //
 // One direction of conversion is easy...
 impl<T> From<T> for Date<T> {
@@ -64,6 +75,15 @@ impl From<Date64> for i64 {
 #[derive(Clone, Copy, Debug)]
 #[repr(transparent)]
 pub struct Duration<Unit: TimeUnit>(i64, PhantomData<Unit>);
+//
+#[cfg(any(test, feature = "proptest"))]
+impl<Unit: TimeUnit> Arbitrary for Duration<Unit> {
+    type Parameters = <i64 as Arbitrary>::Parameters;
+    type Strategy = prop::strategy::Map<<i64 as Arbitrary>::Strategy, fn(i64) -> Self>;
+    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+        i64::arbitrary_with(args).prop_map(|inner| Self(inner, PhantomData))
+    }
+}
 //
 impl<Unit: TimeUnit> From<i64> for Duration<Unit> {
     #[inline(always)]
@@ -169,6 +189,15 @@ impl IntervalDayTime {
     }
 }
 //
+#[cfg(any(test, feature = "proptest"))]
+impl Arbitrary for IntervalDayTime {
+    type Parameters = <i64 as Arbitrary>::Parameters;
+    type Strategy = prop::strategy::Map<<i64 as Arbitrary>::Strategy, fn(i64) -> Self>;
+    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+        i64::arbitrary_with(args).prop_map(Self)
+    }
+}
+//
 impl From<i64> for IntervalDayTime {
     #[inline(always)]
     fn from(value: i64) -> Self {
@@ -205,6 +234,15 @@ impl IntervalMonthDayNano {
     #[inline]
     pub fn to_parts(self) -> (i32, i32, i64) {
         IntervalMonthDayNanoType::to_parts(self.0)
+    }
+}
+//
+#[cfg(any(test, feature = "proptest"))]
+impl Arbitrary for IntervalMonthDayNano {
+    type Parameters = <i128 as Arbitrary>::Parameters;
+    type Strategy = prop::strategy::Map<<i128 as Arbitrary>::Strategy, fn(i128) -> Self>;
+    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+        i128::arbitrary_with(args).prop_map(Self)
     }
 }
 //
@@ -249,6 +287,15 @@ impl IntervalYearMonth {
     }
 }
 //
+#[cfg(any(test, feature = "proptest"))]
+impl Arbitrary for IntervalYearMonth {
+    type Parameters = <i32 as Arbitrary>::Parameters;
+    type Strategy = prop::strategy::Map<<i32 as Arbitrary>::Strategy, fn(i32) -> Self>;
+    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+        i32::arbitrary_with(args).prop_map(Self)
+    }
+}
+//
 impl From<i32> for IntervalYearMonth {
     #[inline(always)]
     fn from(value: i32) -> Self {
@@ -267,6 +314,23 @@ impl From<IntervalYearMonth> for i32 {
 #[derive(Clone, Copy, Debug)]
 #[repr(transparent)]
 pub struct Time<Unit: TimeUnit>(<Unit as TimeUnit>::TimeStorage);
+//
+#[cfg(any(test, feature = "proptest"))]
+impl<Unit: TimeUnit> Arbitrary for Time<Unit>
+where
+    Unit::TimeStorage: Arbitrary,
+{
+    type Parameters = <Unit::TimeStorage as Arbitrary>::Parameters;
+
+    type Strategy = prop::strategy::Map<
+        <Unit::TimeStorage as Arbitrary>::Strategy,
+        fn(Unit::TimeStorage) -> Self,
+    >;
+
+    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+        Unit::TimeStorage::arbitrary_with(args).prop_map(Self)
+    }
+}
 //
 impl From<i32> for Time<Second> {
     #[inline(always)]
@@ -336,7 +400,7 @@ impl From<Time<Nanosecond>> for i64 {
 //       >(i64);
 
 /// Unit of time
-pub trait TimeUnit {
+pub trait TimeUnit: Copy + Clone + Debug {
     /// Storage format for time since midnight in this unit
     type TimeStorage: Clone + Copy + Debug;
 }
@@ -383,8 +447,8 @@ impl TimeUnit for Nanosecond {
 /// wrapper over the underlying `ArrowPrimitiveType::NativeType`.
 pub unsafe trait PrimitiveType:
     // TODO: Once Rust's trait solver supports it, use a SliceElement<Value<'_>
-    //       = Self, for<'a> Slice<'a> = &'a [Self]> bound to simplify
-    //       downstream usage and remove the unsafe contract of SliceElement.
+    //       = Self, Slice<'_> = &[Self]> bound to simplify downstream usage and
+    //       remove the unsafe contract of SliceElement.
     Debug + From<NativeType<Self>> + Into<NativeType<Self>> + SliceElement
 {
     /// Equivalent Arrow primitive type
