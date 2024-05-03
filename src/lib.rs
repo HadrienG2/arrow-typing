@@ -20,7 +20,7 @@ pub use builder::TypedBuilder;
 ///
 /// If this trait is implemented on a [primitive type](PrimitiveType), then the
 /// `Slice` associated type **must** be set to `&[Self]`.
-pub unsafe trait ArrayElement: Debug + Send + Sync + 'static {
+pub unsafe trait ArrayElement: Debug + Send + Sized + Sync + 'static {
     /// Array builder implementation
     #[doc(hidden)]
     type BuilderBackend: builder::backend::TypedBackend<Self>;
@@ -43,7 +43,7 @@ pub unsafe trait ArrayElement: Debug + Send + Sync + 'static {
     /// For example, nullable primitive types like `Option<u16>` are
     /// bulk-manipulated using [`OptionSlice`] batches. And tuple types like
     /// `(T, U, V)` are bulk-manipulated using `(&[T], &[U], &[V])` batches.
-    type Slice<'a>: Debug;
+    type Slice<'a>: Copy + Clone + Debug;
 
     /// Return type of [`TypedBuilder::extend_from_slice()`].
     ///
@@ -68,7 +68,7 @@ impl NullableElement for Null {}
 impl<T: ArrayElement> NullableElement for Option<T> where Option<T>: ArrayElement {}
 
 /// Columnar alternative to `&[Option<T>]`
-#[derive(Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct OptionSlice<'a, T: ArrayElement> {
     /// Values that may or may not be valid
     pub values: T::Slice<'a>,
@@ -77,16 +77,36 @@ pub struct OptionSlice<'a, T: ArrayElement> {
     pub is_valid: &'a [bool],
 }
 //
-impl<'a, T: ArrayElement> Clone for OptionSlice<'a, T>
-where
-    T::Slice<'a>: Clone,
-{
+impl<T: ArrayElement> Clone for OptionSlice<'_, T> {
     fn clone(&self) -> Self {
         Self {
             values: self.values.clone(),
             is_valid: self.is_valid,
         }
     }
+}
+//
+impl<T: ArrayElement> Copy for OptionSlice<'_, T> {}
+//
+// NOTE: I tried to make this blanket-impl'd for Option<T> where
+//       T::BuilderBackend: TypedBackend<Option<T>>, but this caused
+//       problems down the line where backends were not recognized
+//       by the trait solver as implementing TypedBackend<Option<T>>
+//       because Option<T> did not implement ArrayElement. Let's
+//       keep this macrofied for now.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_option_element {
+    ($t:ty) => {
+        // SAFETY: Option is not a primitive type and is therefore not
+        //         affected by the safety precondition of ArrayElement
+        unsafe impl ArrayElement for Option<$t> {
+            type BuilderBackend = <$t as ArrayElement>::BuilderBackend;
+            type Value<'a> = Option<<$t as ArrayElement>::Value<'a>>;
+            type Slice<'a> = $crate::OptionSlice<'a, $t>;
+            type ExtendFromSliceResult = Result<(), arrow_schema::ArrowError>;
+        }
+    };
 }
 
 /// Shared test utilities

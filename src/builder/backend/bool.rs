@@ -1,17 +1,24 @@
 //! Strong typing layer on top of [`BooleanBuilder`]
 
-use super::{Backend, TypedBackend, ValiditySlice};
+use super::{Backend, Capacity, TypedBackend, ValiditySlice};
 use crate::{builder::BuilderConfig, OptionSlice};
 use arrow_array::builder::BooleanBuilder;
 use arrow_schema::ArrowError;
 
 impl Backend for BooleanBuilder {
-    fn capacity(&self) -> usize {
-        self.capacity()
+    #[cfg(test)]
+    fn capacity_opt(&self) -> Option<usize> {
+        Some(self.capacity())
     }
 
     fn extend_with_nulls(&mut self, n: usize) {
         self.append_nulls(n)
+    }
+}
+
+impl Capacity for BooleanBuilder {
+    fn capacity(&self) -> usize {
+        self.capacity()
     }
 }
 

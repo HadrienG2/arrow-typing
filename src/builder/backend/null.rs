@@ -5,8 +5,9 @@ use crate::{builder::BuilderConfig, types::primitive::Null};
 use arrow_array::builder::NullBuilder;
 
 impl Backend for NullBuilder {
-    fn capacity(&self) -> usize {
-        usize::MAX
+    #[cfg(test)]
+    fn capacity_opt(&self) -> Option<usize> {
+        None
     }
 
     fn extend_with_nulls(&mut self, n: usize) {
@@ -59,7 +60,7 @@ mod tests {
         fn init_with_capacity(capacity in length_or_capacity()) {
             check_init_with_capacity_outcome(
                 &TypedBuilder::<Null>::with_capacity(capacity),
-                capacity
+                Some(capacity)
             )?;
         }
 

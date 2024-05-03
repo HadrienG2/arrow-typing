@@ -1,6 +1,7 @@
 //! Strongly typed interface to arrow-rs' [`DataType`]s
 
-use crate::{ArrayElement, OptionSlice};
+use crate::impl_option_element;
+use crate::ArrayElement;
 use arrow_array::builder::{
     BooleanBuilder, Date32Builder, Date64Builder, DurationMicrosecondBuilder,
     DurationMillisecondBuilder, DurationNanosecondBuilder, DurationSecondBuilder, Float16Builder,
@@ -13,7 +14,6 @@ use arrow_array::{
     builder::{NullBuilder, PrimitiveBuilder},
     types::*,
 };
-use arrow_schema::ArrowError;
 #[cfg(doc)]
 use arrow_schema::DataType;
 use half::f16;
@@ -528,22 +528,7 @@ macro_rules! impl_primitive_element {
                 type Slice<'a> = &'a [Self];
                 type ExtendFromSliceResult = ();
             }
-
-            // NOTE: I tried to make this blanket-impl'd for Option<T> where
-            //       T::BuilderBackend: TypedBackend<Option<T>>, but this caused
-            //       problems down the line where backends were not recognized
-            //       by the trait solver as implementing TypedBackend<Option<T>>
-            //       because Option<T> did not implement ArrayElement. Let's
-            //       keep this macrofied for now.
-            //
-            // SAFETY: Option is not a primitive type and is therefore not
-            //         affected by the safety precondition of ArrayElement
-            unsafe impl ArrayElement for Option<$element> {
-                type BuilderBackend = $builder;
-                type Value<'a> = Option<$element>;
-                type Slice<'a> = OptionSlice<'a, $element>;
-                type ExtendFromSliceResult = Result<(), ArrowError>;
-            }
+            impl_option_element!($element);
         )*
     };
 }

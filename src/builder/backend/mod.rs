@@ -1,6 +1,7 @@
 //! Strong typing layer on top of Arrow builders
 
 mod bool;
+mod list;
 mod null;
 mod primitive;
 
@@ -28,9 +29,9 @@ use arrow_array::builder::ArrayBuilder;
 use std::fmt::Debug;
 
 /// Arrow builder that can accept strongly typed entries of type `T`
-pub trait TypedBackend<T: ArrayElement + ?Sized>: Backend {
+pub trait TypedBackend<T: ArrayElement>: Backend {
     /// Configuration needed to construct a builder backend for this type
-    type Config: Clone + Debug + Eq + PartialEq;
+    type Config: Clone + Debug + PartialEq;
 
     /// Create a new builder backend
     fn new(config: BuilderConfig<T>) -> Self;
@@ -47,19 +48,28 @@ pub trait TypedBackend<T: ArrayElement + ?Sized>: Backend {
 
 /// Subset of `TypedBackend<T>` functionality that does not depend on `T`
 pub trait Backend: ArrayBuilder + Debug {
-    /// Number of elements the array can hold without reallocating
-    ///
-    /// In the case of types that are internally stored as multiple columnar
-    /// buffers, like structs or unions, a lower bound on the capacity of all
-    /// underlying columns is returned.
-    ///
-    /// In the case of arrays of lists, capacity is to be understood as the
-    /// number of sublists that the array can hold, not the cumulative number of
-    /// elements across all sublists.
-    fn capacity(&self) -> usize;
+    /// Backend capacity if available, otherwise None
+    #[cfg(test)]
+    fn capacity_opt(&self) -> Option<usize>;
 
     /// Efficiently append `n` null values into the builder
     fn extend_with_nulls(&mut self, n: usize);
+}
+
+/// Access the current buffer capacity
+///
+/// In the case of types that are internally stored as multiple columnar
+/// buffers, like structs or unions, a lower bound on the capacity of all
+/// underlying columns is returned.
+///
+/// In the case of arrays of lists, capacity is to be understood as the
+/// number of sublists that the array can hold, not the cumulative number of
+/// elements across all sublists.
+///
+/// Finally, some backends unfortunately do not provide this information at all.
+pub trait Capacity: Backend {
+    /// Number of elements the builder can hold without reallocating
+    fn capacity(&self) -> usize;
 }
 
 /// Access the current null buffer as a slice

@@ -2,7 +2,9 @@
 
 pub(crate) mod backend;
 
-use self::backend::{Backend, TypedBackend};
+use std::fmt::{self, Debug, Formatter};
+
+use self::backend::{Backend, Capacity, TypedBackend};
 #[cfg(doc)]
 use crate::{types::primitive::PrimitiveType, OptionSlice};
 use crate::{validity::ValiditySlice, ArrayElement, NullableElement};
@@ -10,13 +12,13 @@ use arrow_array::builder::ArrayBuilder;
 
 /// Strongly typed array builder
 #[derive(Debug)]
-pub struct TypedBuilder<T: ArrayElement + ?Sized>(BuilderBackend<T>);
+pub struct TypedBuilder<T: ArrayElement>(BuilderBackend<T>);
 //
-/// The following constructors are available for simple element types like
+/// The following constructors are only available for simple element types like
 /// primitive types which require no extra configuration. More complex element
-/// types (e.g. fixed-sized lists of dynamically defined extent) will need to be
+/// types (e.g. fixed-sized lists of dynamically defined extent) may need to be
 /// configured using the [`TypedBuilder::with_config()`] constructor.
-impl<T: ArrayElement + ?Sized> TypedBuilder<T>
+impl<T: ArrayElement> TypedBuilder<T>
 where
     BackendConfig<T>: Default,
 {
@@ -43,7 +45,7 @@ where
     }
 }
 //
-impl<T: ArrayElement + ?Sized> TypedBuilder<T> {
+impl<T: ArrayElement> TypedBuilder<T> {
     /// Create a new array builder with an explicit configuration
     //
     // TODO: Add a usage example with an element type which actually needs a nontrivial config
@@ -52,6 +54,10 @@ impl<T: ArrayElement + ?Sized> TypedBuilder<T> {
     }
 
     /// Number of elements the array can hold without reallocating
+    ///
+    /// This operation is currently only available on `TypedBuilder`s of `Null`,
+    /// bool, primitive types, as well as `Option`s, tuples and lists whose leaf
+    /// types are one of these.
     ///
     /// ```rust
     /// # use arrow_typing::TypedBuilder;
@@ -70,7 +76,10 @@ impl<T: ArrayElement + ?Sized> TypedBuilder<T> {
     /// number of elements across all sublists.
     //
     // TODO: Example
-    pub fn capacity(&self) -> usize {
+    pub fn capacity(&self) -> usize
+    where
+        BuilderBackend<T>: Capacity,
+    {
         self.0.capacity()
     }
 
@@ -148,10 +157,12 @@ where
 {
     /// Efficiently append multiple non-null values into the builder
     ///
-    /// This operation is available for every `TypedBuilder` of `Option<T>`
-    /// where `T` is an [`ArrayElement`]. Given a slice of `T`, it lets you do
-    /// the optimized equivalent of calling `push(Some(value))` in a loop for
-    /// each value inside of the slice.
+    /// This operation is available for almost every `TypedBuilder` of
+    /// `Option<T>` where `T` is an [`ArrayElement`], except for `Option<Null>`
+    /// which does not exist in the Arrow data model.
+    ///
+    /// Given a slice of `T`, it lets you do the optimized equivalent of calling
+    /// `push(Some(value))` in a loop for each value.
     ///
     /// ```rust
     /// # use arrow_typing::TypedBuilder;
@@ -167,7 +178,7 @@ where
     }
 }
 //
-impl<T: ArrayElement + ?Sized> TypedBuilder<T> {
+impl<T: ArrayElement> TypedBuilder<T> {
     /// Efficiently append multiple null values into the builder
     ///
     /// This operation is available when T is a [nullable
@@ -255,7 +266,7 @@ where
     }
 }
 //
-impl<T: ArrayElement + ?Sized> Default for TypedBuilder<T>
+impl<T: ArrayElement> Default for TypedBuilder<T>
 where
     BackendConfig<T>: Default,
 {
@@ -264,7 +275,7 @@ where
     }
 }
 //
-impl<'a, T: ArrayElement + ?Sized> Extend<T::Value<'a>> for TypedBuilder<T> {
+impl<'a, T: ArrayElement> Extend<T::Value<'a>> for TypedBuilder<T> {
     fn extend<I: IntoIterator<Item = T::Value<'a>>>(&mut self, iter: I) {
         for item in iter {
             self.push(item)
@@ -273,8 +284,7 @@ impl<'a, T: ArrayElement + ?Sized> Extend<T::Value<'a>> for TypedBuilder<T> {
 }
 
 /// Configuration needed to construct a [`TypedBuilder`]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct BuilderConfig<T: ArrayElement + ?Sized> {
+pub struct BuilderConfig<T: ArrayElement> {
     /// Minimal number of elements this builder can accept without reallocating
     capacity: Option<usize>,
 
@@ -286,7 +296,7 @@ pub struct BuilderConfig<T: ArrayElement + ?Sized> {
 /// primitive types which require no extra configuration. More complex element
 /// types (e.g. fixed-sized lists of dynamically defined extent) will need to be
 /// configured using one of the other constructors.
-impl<T: ArrayElement + ?Sized> BuilderConfig<T>
+impl<T: ArrayElement> BuilderConfig<T>
 where
     BackendConfig<T>: Default,
 {
@@ -304,7 +314,25 @@ where
     }
 }
 //
-impl<T: ArrayElement + ?Sized> Default for BuilderConfig<T>
+impl<T: ArrayElement> Clone for BuilderConfig<T> {
+    fn clone(&self) -> Self {
+        Self {
+            capacity: self.capacity,
+            backend: self.backend.clone(),
+        }
+    }
+}
+//
+impl<T: ArrayElement> Debug for BuilderConfig<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BuilderConfig")
+            .field("capacity", &self.capacity)
+            .field("backend", &self.backend)
+            .finish()
+    }
+}
+//
+impl<T: ArrayElement> Default for BuilderConfig<T>
 where
     BackendConfig<T>: Default,
 {
@@ -313,6 +341,12 @@ where
             capacity: None,
             backend: Default::default(),
         }
+    }
+}
+//
+impl<T: ArrayElement> PartialEq for BuilderConfig<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.capacity == other.capacity && self.backend == other.backend
     }
 }
 
@@ -361,11 +395,15 @@ mod tests {
     /// Check outcome of initializing a `TypedBuilder` with some capacity
     ///
     /// This does not work with `NullBuilder`, for which `len == capacity`
-    pub fn check_init_with_capacity_outcome(
-        builder: &TypedBuilder<impl ArrayElement>,
-        capacity: usize,
+    pub fn check_init_with_capacity_outcome<T: ArrayElement>(
+        builder: &TypedBuilder<T>,
+        init_capacity: Option<usize>,
     ) -> TestCaseResult {
-        prop_assert!(builder.capacity() >= capacity);
+        if let (Some(init_capacity), Some(builder_capacity)) =
+            (init_capacity, builder.0.capacity_opt())
+        {
+            prop_assert!(builder_capacity >= init_capacity);
+        }
         prop_assert_eq!(builder.len(), 0);
         prop_assert!(builder.is_empty());
         // TODO: Build and check final array
@@ -375,7 +413,7 @@ mod tests {
     /// Like `check_init_with_capacity`, but for both `T` and `Option<T>`
     ///
     /// For almost every [`ArrayElement`] type `T` with the exception of `Null`,
-    /// `Option<T>` is also an `ArrayElement`.
+    /// `Option<T>` is also an `ArrayElement` and this test can be run.
     pub fn check_init_with_capacity_optional<T: ArrayElement>(
         make_backend_config: impl Fn() -> BackendConfig<T>,
         capacity: usize,
@@ -389,14 +427,14 @@ mod tests {
                 capacity: Some(capacity),
                 backend: make_backend_config(),
             }),
-            capacity,
+            Some(capacity),
         )?;
         check_init_with_capacity_outcome(
             &TypedBuilder::<Option<T>>::with_config(BuilderConfig {
                 capacity: Some(capacity),
                 backend: make_backend_config(),
             }),
-            capacity,
+            Some(capacity),
         )?;
         Ok(())
     }
@@ -407,16 +445,16 @@ mod tests {
         BackendConfig<T>: Default,
     {
         let mut builder = TypedBuilder::<T>::new();
-        check_init_with_capacity_outcome(&builder, builder.capacity())?;
+        check_init_with_capacity_outcome(&builder, builder.0.capacity_opt())?;
         builder = TypedBuilder::<T>::default();
-        check_init_with_capacity_outcome(&builder, builder.capacity())?;
+        check_init_with_capacity_outcome(&builder, builder.0.capacity_opt())?;
         Ok(())
     }
 
     /// Like `check_init_default`, but for both `T` and `Option<T>`
     ///
     /// For almost every [`ArrayElement`] type `T` with the exception of `Null`,
-    /// `Option<T>` is also an `ArrayElement`.
+    /// `Option<T>` is also an `ArrayElement` and this test can be run.
     pub fn check_init_default_optional<T: ArrayElement>() -> TestCaseResult
     where
         Option<T>: ArrayElement,
@@ -437,7 +475,9 @@ mod tests {
         init_capacity: usize,
         num_elements: usize,
     ) -> TestCaseResult {
-        prop_assert!(builder.capacity() >= init_capacity.max(num_elements));
+        if let Some(capacity) = builder.0.capacity_opt() {
+            prop_assert!(capacity >= init_capacity.max(num_elements));
+        }
         prop_assert_eq!(builder.len(), num_elements);
         prop_assert_eq!(builder.is_empty(), num_elements == 0);
         // TODO: Build and check final array
@@ -533,6 +573,7 @@ mod tests {
         Ok(())
     }
     //
+    // FIXME: Migrate to public trait
     trait Slice<T>: Clone {
         fn slice_len(&self) -> usize;
         fn slice_iter<'self_>(&'self_ self) -> impl Iterator<Item = &T> + 'self_
@@ -605,7 +646,7 @@ mod tests {
 
         if slice.values.slice_len() != slice.is_valid.len() {
             prop_assert!(result.is_err());
-            check_init_with_capacity_outcome(&builder, init_capacity)?;
+            check_init_with_capacity_outcome(&builder, Some(init_capacity))?;
             return Ok(());
         }
 

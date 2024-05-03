@@ -1,6 +1,6 @@
 //! Strong typing layer on top of [`PrimitiveBuilder`]
 
-use super::{Backend, TypedBackend, ValiditySlice};
+use super::{Backend, Capacity, TypedBackend, ValiditySlice};
 use crate::{
     builder::BuilderConfig,
     types::primitive::{NativeType, PrimitiveType},
@@ -11,12 +11,19 @@ use arrow_schema::ArrowError;
 use std::{fmt::Debug, panic::AssertUnwindSafe};
 
 impl<T: ArrowPrimitiveType + Debug> Backend for PrimitiveBuilder<T> {
-    fn capacity(&self) -> usize {
-        self.capacity()
+    #[cfg(test)]
+    fn capacity_opt(&self) -> Option<usize> {
+        Some(self.capacity())
     }
 
     fn extend_with_nulls(&mut self, n: usize) {
         self.append_nulls(n)
+    }
+}
+
+impl<T: ArrowPrimitiveType + Debug> Capacity for PrimitiveBuilder<T> {
+    fn capacity(&self) -> usize {
+        usize::MAX
     }
 }
 
@@ -104,7 +111,7 @@ where
             self.append_values(native_values, slice.is_valid)
         }));
         res.map_err(|_| {
-            ArrowError::InvalidArgumentError("Value and validity lengths must be equal".to_string())
+            ArrowError::InvalidArgumentError("value and validity lengths must be equal".to_string())
         })
     }
 }
