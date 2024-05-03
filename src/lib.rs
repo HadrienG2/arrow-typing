@@ -67,12 +67,12 @@ impl<T: ArrayElement> NullableElement for Option<T> where Option<T>: ArrayElemen
 pub unsafe trait SliceElement: ArrayElement {
     /// Slice type used for bulk insertion and readout
     ///
-    /// For simple types this will just be `&[Self]`, but for more complex
-    /// types, efficiency constraints may dictate a different layout.
+    /// For simple types this will just be `&[Self::Value]`, but for more
+    /// complex types, efficiency constraints may dictate a different layout.
     ///
     /// For example, nullable primitive types like `Option<u16>` are
-    /// bulk-manipulated using [`OptionSlice`]s. And tuple types like `(T, U,
-    /// V)` are bulk-manipulated using `(&[T], &[U], &[V])` batches.
+    /// bulk-manipulated using [`OptionSlice`] batches. And tuple types like
+    /// `(T, U, V)` are bulk-manipulated using `(&[T], &[U], &[V])` batches.
     type Slice<'a>;
 
     /// Return type of [`TypedBuilder::extend_from_slice()`].
@@ -86,7 +86,7 @@ pub unsafe trait SliceElement: ArrayElement {
     type ExtendFromSliceResult: Debug;
 }
 
-/// Alternative to `&[Option<T>]` that is friendlier to columnar storage
+/// Columnar alternative to `&[Option<T>]`
 #[derive(Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct OptionSlice<'a, T: SliceElement> {
     /// Values that may or may not be valid

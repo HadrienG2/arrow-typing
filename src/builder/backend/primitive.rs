@@ -2,6 +2,7 @@
 
 use super::{Backend, ExtendFromSlice, TypedBackend, ValiditySlice};
 use crate::{
+    builder::BuilderConfig,
     types::primitive::{NativeType, PrimitiveType},
     ArrayElement, OptionSlice, SliceElement,
 };
@@ -10,16 +11,6 @@ use arrow_schema::ArrowError;
 use std::{fmt::Debug, panic::AssertUnwindSafe};
 
 impl<T: ArrowPrimitiveType + Debug> Backend for PrimitiveBuilder<T> {
-    type ConstructorParameters = ();
-
-    fn new(_params: ()) -> Self {
-        Self::new()
-    }
-
-    fn with_capacity(_params: (), capacity: usize) -> Self {
-        Self::with_capacity(capacity)
-    }
-
     fn capacity(&self) -> usize {
         self.capacity()
     }
@@ -43,6 +34,16 @@ where
     //        implement Into<NativeType<T>> per PrimitiveType definition)
     for<'a> T::Value<'a>: Into<NativeType<T>>,
 {
+    type Config = ();
+
+    fn new(params: BuilderConfig<T>) -> Self {
+        if let Some(capacity) = params.capacity {
+            Self::with_capacity(capacity)
+        } else {
+            Self::new()
+        }
+    }
+
     #[inline]
     fn push(&mut self, v: T::Value<'_>) {
         self.append_value(v.into())
@@ -62,6 +63,16 @@ where
     Option<T>: ArrayElement,
     for<'a> <Option<T> as ArrayElement>::Value<'a>: Into<Option<T::Value<'a>>>,
 {
+    type Config = ();
+
+    fn new(params: BuilderConfig<Option<T>>) -> Self {
+        if let Some(capacity) = params.capacity {
+            Self::with_capacity(capacity)
+        } else {
+            Self::new()
+        }
+    }
+
     #[inline]
     fn push(&mut self, v: <Option<T> as ArrayElement>::Value<'_>) {
         let opt: Option<T::Value<'_>> = v.into();

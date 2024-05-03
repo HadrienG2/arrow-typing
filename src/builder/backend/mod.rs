@@ -26,23 +26,22 @@ use crate::{ArrayElement, SliceElement};
 use arrow_array::builder::ArrayBuilder;
 use std::fmt::Debug;
 
+use super::BuilderConfig;
+
 /// Arrow builder that can accept strongly typed entries of type `T`
 pub trait TypedBackend<T: ArrayElement + ?Sized>: Backend {
+    /// Constructor parameters other than inner array builders
+    type Config;
+
+    /// Create a new builder with no underlying buffer allocation
+    fn new(params: BuilderConfig<T>) -> Self;
+
     /// Append a single element into the builder
     fn push(&mut self, v: T::Value<'_>);
 }
 
 /// Subset of `TypedBackend<T>` functionality that does not depend on `T`
 pub trait Backend: ArrayBuilder + Debug {
-    /// Constructor parameters other than inner array builders
-    type ConstructorParameters;
-
-    /// Create a new builder with no underlying buffer allocation
-    fn new(params: Self::ConstructorParameters) -> Self;
-
-    /// Create a new builder with space for `capacity` elements
-    fn with_capacity(params: Self::ConstructorParameters, capacity: usize) -> Self;
-
     /// Number of elements the array can hold without reallocating
     ///
     /// In the case of types that are internally stored as multiple columnar

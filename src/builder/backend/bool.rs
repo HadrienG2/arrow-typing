@@ -1,21 +1,11 @@
 //! Strong typing layer on top of [`BooleanBuilder`]
 
 use super::{Backend, ExtendFromSlice, TypedBackend, ValiditySlice};
-use crate::OptionSlice;
+use crate::{builder::BuilderConfig, OptionSlice};
 use arrow_array::builder::BooleanBuilder;
 use arrow_schema::ArrowError;
 
 impl Backend for BooleanBuilder {
-    type ConstructorParameters = ();
-
-    fn new(_params: ()) -> Self {
-        Self::new()
-    }
-
-    fn with_capacity(_params: (), capacity: usize) -> Self {
-        Self::with_capacity(capacity)
-    }
-
     fn capacity(&self) -> usize {
         self.capacity()
     }
@@ -32,6 +22,16 @@ impl ValiditySlice for BooleanBuilder {
 }
 
 impl TypedBackend<bool> for BooleanBuilder {
+    type Config = ();
+
+    fn new(params: BuilderConfig<bool>) -> Self {
+        if let Some(capacity) = params.capacity {
+            Self::with_capacity(capacity)
+        } else {
+            Self::new()
+        }
+    }
+
     #[inline]
     fn push(&mut self, v: bool) {
         self.append_value(v)
@@ -39,6 +39,16 @@ impl TypedBackend<bool> for BooleanBuilder {
 }
 
 impl TypedBackend<Option<bool>> for BooleanBuilder {
+    type Config = ();
+
+    fn new(params: BuilderConfig<Option<bool>>) -> Self {
+        if let Some(capacity) = params.capacity {
+            Self::with_capacity(capacity)
+        } else {
+            Self::new()
+        }
+    }
+
     #[inline]
     fn push(&mut self, v: Option<bool>) {
         self.append_option(v)
