@@ -2,10 +2,10 @@
 
 pub(crate) mod backend;
 
-use self::backend::{Backend, ExtendFromSlice, TypedBackend};
+use self::backend::{Backend, TypedBackend};
 #[cfg(doc)]
 use crate::{types::primitive::PrimitiveType, OptionSlice};
-use crate::{validity::ValiditySlice, ArrayElement, NullableElement, SliceElement};
+use crate::{validity::ValiditySlice, ArrayElement, NullableElement};
 use arrow_array::builder::ArrayBuilder;
 use std::fmt::{self, Debug, Formatter};
 
@@ -108,11 +108,6 @@ impl<T: ArrayElement + ?Sized> TypedBuilder<T> {
     /// ]);
     /// ```
     ///
-    /// This operation is available for all element types that implement
-    /// [`SliceElement`]. This trait, in turn, is implemented for types where
-    /// Arrow provides a bulk insertion mechanism which is more efficient than
-    /// calling `push()` in a loop.
-    ///
     /// For simple types, `T::Slice` is just `&[T]`. But for efficiency reasons,
     /// slices of more complex types will have a less obvious columnar layout
     /// containing multiple inner Rust slices. For example, slices of options
@@ -143,28 +138,19 @@ impl<T: ArrayElement + ?Sized> TypedBuilder<T> {
     /// when `T::Slice` is a composite slice type.
     //
     // TODO: Add an example with structs?
-    pub fn extend_from_slice(&mut self, s: T::Slice<'_>) -> T::ExtendFromSliceResult
-    where
-        T: SliceElement,
-        // FIXME: Remove useless bound once SliceElement gets the required
-        //        Backend: ExtendFromSlice bound
-        T::BuilderBackend: ExtendFromSlice<T>,
-    {
+    pub fn extend_from_slice(&mut self, s: T::Slice<'_>) -> T::ExtendFromSliceResult {
         self.0.extend_from_slice(s)
     }
 }
 //
-impl<T: SliceElement> TypedBuilder<Option<T>>
+impl<T: ArrayElement> TypedBuilder<Option<T>>
 where
     Option<T>: ArrayElement<BuilderBackend = BuilderBackend<T>>,
-    // FIXME: Remove useless bound once SliceElement gets the required Backend:
-    //        ExtendFromSlice bound
-    T::BuilderBackend: ExtendFromSlice<T>,
 {
     /// Efficiently append multiple non-null values into the builder
     ///
     /// This operation is available for every `TypedBuilder` of `Option<T>`
-    /// where `T` is a [`SliceElement`]. Given a slice of `T`, it lets you do
+    /// where `T` is an [`ArrayElement`]. Given a slice of `T`, it lets you do
     /// the optimized equivalent of calling `push(Some(value))` in a loop for
     /// each value inside of the slice.
     ///
@@ -533,14 +519,14 @@ mod tests {
 
     /// Check outcome of extending a builder of T or Option<T> with a slice of
     /// values
-    pub fn check_extend_from_values<T: SliceElement>(
+    pub fn check_extend_from_values<T: ArrayElement>(
         make_backend_config: impl Fn() -> BackendConfig<T>,
         init_capacity: usize,
         values: T::Slice<'_>,
     ) -> TestCaseResult
     where
         Option<T>: ArrayElement<BuilderBackend = BuilderBackend<T>>,
-        BuilderBackend<T>: ExtendFromSlice<T> + TypedBackend<Option<T>, Config = BackendConfig<T>>,
+        BuilderBackend<T>: TypedBackend<Option<T>, Config = BackendConfig<T>>,
         BuilderBackend<Option<T>>: ValiditySlice,
         for<'a> T::Slice<'a>: Slice<T::Value<'a>> + Clone,
         for<'a> T::Value<'a>: Clone + Into<<Option<T> as ArrayElement>::Value<'a>>,
@@ -603,7 +589,7 @@ mod tests {
     }
 
     /// Generate building blocks for an `OptionSlice<T>`
-    pub fn option_vec<T: SliceElement + Arbitrary>() -> impl Strategy<Value = (Vec<T>, Vec<bool>)> {
+    pub fn option_vec<T: ArrayElement + Arbitrary>() -> impl Strategy<Value = (Vec<T>, Vec<bool>)> {
         prop_oneof![
             // Valid OptionSlice
             (0..=SizeRange::default().end_incl()).prop_flat_map(|len| {
@@ -617,7 +603,7 @@ mod tests {
     }
 
     /// Like `option_vec`, but with a custom value generation strategy
-    pub fn option_vec_custom<T: SliceElement, S: Strategy<Value = T>>(
+    pub fn option_vec_custom<T: ArrayElement, S: Strategy<Value = T>>(
         strategy: impl Fn() -> S + Copy,
     ) -> impl Strategy<Value = (Vec<T>, Vec<bool>)> {
         prop_oneof![
@@ -636,16 +622,16 @@ mod tests {
     }
 
     /// Check `extend_from_slice` on `TypedBuilder<Option<T>>`.
-    pub fn check_extend_from_options<T: SliceElement>(
+    pub fn check_extend_from_options<T: ArrayElement>(
         backend_config: BackendConfig<Option<T>>,
         init_capacity: usize,
         slice: OptionSlice<T>,
     ) -> TestCaseResult
     where
-        Option<T>: SliceElement<ExtendFromSliceResult = Result<(), ArrowError>>,
+        Option<T>: ArrayElement<ExtendFromSliceResult = Result<(), ArrowError>>,
         for<'a> T::Slice<'a>: Slice<T>,
-        for<'a> OptionSlice<'a, T>: Into<<Option<T> as SliceElement>::Slice<'a>>,
-        BuilderBackend<Option<T>>: ExtendFromSlice<Option<T>> + ValiditySlice,
+        for<'a> OptionSlice<'a, T>: Into<<Option<T> as ArrayElement>::Slice<'a>>,
+        BuilderBackend<Option<T>>: ValiditySlice,
     {
         let mut builder = TypedBuilder::<Option<T>>::with_config(BuilderConfig {
             capacity: Some(init_capacity),

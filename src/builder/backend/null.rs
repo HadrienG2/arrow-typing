@@ -6,7 +6,7 @@ use arrow_array::builder::NullBuilder;
 
 impl Backend for NullBuilder {
     fn capacity(&self) -> usize {
-        self.capacity()
+        usize::MAX
     }
 
     fn extend_with_nulls(&mut self, n: usize) {
@@ -17,26 +17,35 @@ impl Backend for NullBuilder {
 impl TypedBackend<Null> for NullBuilder {
     type Config = ();
 
-    fn new(config: BuilderConfig<Null>) -> Self {
-        if let Some(capacity) = config.capacity {
-            Self::with_capacity(capacity)
-        } else {
-            Self::new()
-        }
+    fn new(_config: BuilderConfig<Null>) -> Self {
+        // FIXME: We do not forward the capacity to NullBuilder as it does not
+        //        handle it in a manner that is consistent with other builders,
+        //        see https://github.com/apache/arrow-rs/issues/5711
+        Self::new()
     }
 
     #[inline]
     fn push(&mut self, _v: Null) {
         self.append_null()
     }
+
+    fn extend_from_slice(&mut self, n: usize) {
+        self.append_nulls(n)
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::{
-        builder::{tests::check_init_default, TypedBuilder},
+        builder::{
+            tests::{
+                check_extend_outcome, check_init_default, check_init_with_capacity_outcome,
+                check_push,
+            },
+            TypedBuilder,
+        },
         tests::length_or_capacity,
-        types::primitive::Null,
     };
     use proptest::{prelude::*, test_runner::TestCaseResult};
 
@@ -45,29 +54,18 @@ mod tests {
         check_init_default::<Null>()
     }
 
-    // NullBuilder enforces len == capacity
-    fn check_null_builder_len(builder: &TypedBuilder<Null>) -> TestCaseResult {
-        prop_assert_eq!(builder.len(), builder.capacity());
-        prop_assert_eq!(builder.is_empty(), builder.capacity() == 0);
-        Ok(())
-    }
-
     proptest! {
         #[test]
         fn init_with_capacity(capacity in length_or_capacity()) {
-            // For null builders, len == capacity, which has... interesting
-            // consequences
-            let builder = TypedBuilder::<Null>::with_capacity(capacity);
-            prop_assert_eq!(builder.capacity(), capacity);
-            check_null_builder_len(&builder)?;
+            check_init_with_capacity_outcome(
+                &TypedBuilder::<Null>::with_capacity(capacity),
+                capacity
+            )?;
         }
 
         #[test]
-        fn push_null(init_capacity in length_or_capacity()) {
-            let mut builder = TypedBuilder::<Null>::with_capacity(init_capacity);
-            builder.push(Null);
-            prop_assert_eq!(builder.capacity(), init_capacity + 1);
-            check_null_builder_len(&builder)?;
+        fn push(init_capacity in length_or_capacity()) {
+            check_push::<Null>((), init_capacity, Null)?;
         }
 
         #[test]
@@ -75,10 +73,16 @@ mod tests {
             init_capacity in length_or_capacity(),
             num_nulls in length_or_capacity()
         ) {
-            let mut builder = TypedBuilder::<Null>::with_capacity(init_capacity);
-            builder.extend_with_nulls(num_nulls);
-            prop_assert_eq!(builder.capacity(), init_capacity + num_nulls);
-            check_null_builder_len(&builder)?;
+            let make_builder = || TypedBuilder::<Null>::with_capacity(init_capacity);
+            {
+                let mut builder = make_builder();
+                builder.extend_from_slice(num_nulls);
+                check_extend_outcome(&builder, init_capacity, num_nulls)?;
+            }{
+                let mut builder = make_builder();
+                builder.extend_with_nulls(num_nulls);
+                check_extend_outcome(&builder, init_capacity, num_nulls)?;
+            }
         }
     }
 }

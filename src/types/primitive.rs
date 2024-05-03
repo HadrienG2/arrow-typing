@@ -1,7 +1,10 @@
 //! Strongly typed interface to arrow-rs' [`DataType`]s
 
-use crate::{ArrayElement, SliceElement};
-use arrow_array::{builder::NullBuilder, types::*};
+use crate::ArrayElement;
+use arrow_array::{
+    builder::{NullBuilder, PrimitiveBuilder},
+    types::*,
+};
 #[cfg(doc)]
 use arrow_schema::DataType;
 use half::f16;
@@ -15,9 +18,15 @@ use std::{fmt::Debug, marker::PhantomData, num::TryFromIntError};
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Null;
 //
-impl ArrayElement for Null {
+// SAFETY: Null is not a PrimitiveType and is therefore not concerned by
+//         ArrayElement's safety contract.
+unsafe impl ArrayElement for Null {
     type BuilderBackend = NullBuilder;
     type Value<'a> = Self;
+    /// The only information that a slice of null contains is the number of
+    /// nulls in it, so we make it literally a count of nulls
+    type Slice<'a> = usize;
+    type ExtendFromSliceResult = ();
 }
 
 /// Date type representing the elapsed time since the UNIX epoch in days
@@ -446,10 +455,10 @@ impl TimeUnit for Nanosecond {
 /// The type for which this trait is implemented must be a `repr(transparent)`
 /// wrapper over the underlying `ArrowPrimitiveType::NativeType`.
 pub unsafe trait PrimitiveType:
-    // TODO: Once Rust's trait solver supports it, use a SliceElement<Value<'_>
+    // TODO: Once Rust's trait solver supports it, use an ArrayElement<Value<'_>
     //       = Self, Slice<'_> = &[Self]> bound to simplify downstream usage and
-    //       remove the unsafe contract of SliceElement.
-    Debug + From<NativeType<Self>> + Into<NativeType<Self>> + SliceElement
+    //       remove the unsafe contract of ArrayElement.
+    ArrayElement<BuilderBackend = PrimitiveBuilder<Self::Arrow>, ExtendFromSliceResult = ()> + Debug + From<NativeType<Self>> + Into<NativeType<Self>>
 {
     /// Equivalent Arrow primitive type
     type Arrow: ArrowPrimitiveType + Debug;

@@ -1,10 +1,10 @@
 //! Strong typing layer on top of [`PrimitiveBuilder`]
 
-use super::{Backend, ExtendFromSlice, TypedBackend, ValiditySlice};
+use super::{Backend, TypedBackend, ValiditySlice};
 use crate::{
     builder::BuilderConfig,
     types::primitive::{NativeType, PrimitiveType},
-    ArrayElement, OptionSlice, SliceElement,
+    ArrayElement, OptionSlice,
 };
 use arrow_array::{builder::PrimitiveBuilder, types::ArrowPrimitiveType};
 use arrow_schema::ArrowError;
@@ -48,6 +48,17 @@ where
     fn push(&mut self, v: T::Value<'_>) {
         self.append_value(v.into())
     }
+
+    fn extend_from_slice(&mut self, s: T::Slice<'_>) {
+        // SAFETY: This transmute is safe because...
+        //         - T::Slice is &[T] for all primitive types
+        //         - Primitive types are repr(transparent) wrappers over the
+        //           corresponding Arrow native types, so it is safe to
+        //           transmute &[T] into &[NativeType<T>].
+        let native_slice =
+            unsafe { std::mem::transmute_copy::<T::Slice<'_>, &[NativeType<T>]>(&s) };
+        self.append_slice(native_slice)
+    }
 }
 
 impl<T: PrimitiveType> TypedBackend<Option<T>> for PrimitiveBuilder<T::Arrow>
@@ -60,8 +71,9 @@ where
     //
     // FIXME: Remove these bounds once it becomes possible to blanket-impl
     //        ArrayElement for Option<T: PrimitiveType>, making them obvious.
-    Option<T>: ArrayElement,
+    Option<T>: ArrayElement<ExtendFromSliceResult = Result<(), ArrowError>>,
     for<'a> <Option<T> as ArrayElement>::Value<'a>: Into<Option<T::Value<'a>>>,
+    for<'a> <Option<T> as ArrayElement>::Slice<'a>: Into<OptionSlice<'a, T>>,
 {
     type Config = ();
 
@@ -79,45 +91,10 @@ where
         let opt: Option<NativeType<T>> = opt.map(Into::into);
         self.append_option(opt)
     }
-}
 
-impl<T: PrimitiveType<ExtendFromSliceResult = ()>> ExtendFromSlice<T> for PrimitiveBuilder<T::Arrow>
-where
-    // FIXME: Remove this bound once the Rust trait system supports adding the
-    //        appropriate bounds on PrimitiveType to let rustc figure out that
-    //        T::Value<'_> is just T for primitive types (and thus T::Value must
-    //        implement Into<NativeType<T>> per PrimitiveType definition)
-    for<'a> T::Value<'a>: Into<NativeType<T>>,
-{
-    fn extend_from_slice(&mut self, s: T::Slice<'_>) {
-        // SAFETY: This transmute is safe because...
-        //         - T::Slice is &[T] for all primitive types
-        //         - Primitive types are repr(transparent) wrappers over the
-        //           corresponding Arrow native types, so it is safe to
-        //           transmute &[T] into &[NativeType<T>].
-        let native_slice =
-            unsafe { std::mem::transmute_copy::<T::Slice<'_>, &[NativeType<T>]>(&s) };
-        self.append_slice(native_slice)
-    }
-}
-
-impl<T: PrimitiveType> ExtendFromSlice<Option<T>> for PrimitiveBuilder<T::Arrow>
-where
-    // FIXME: Remove this bound once the Rust trait system supports adding the
-    //        appropriate bounds on PrimitiveType to let rustc figure out that
-    //        T::Value<'_> is just T for primitive types (and thus T::Value must
-    //        implement Into<NativeType<T>> per PrimitiveType definition)
-    for<'a> T::Value<'a>: Into<NativeType<T>>,
-    //
-    // FIXME: Remove these bounds once it becomes possible to blanket-impl
-    //        SliceElement for Option<T: PrimitiveType>, making them obvious.
-    Option<T>: SliceElement<ExtendFromSliceResult = Result<(), ArrowError>>,
-    for<'a> <Option<T> as ArrayElement>::Value<'a>: Into<Option<T::Value<'a>>>,
-    for<'a> <Option<T> as SliceElement>::Slice<'a>: Into<OptionSlice<'a, T>>,
-{
     fn extend_from_slice(
         &mut self,
-        slice: <Option<T> as SliceElement>::Slice<'_>,
+        slice: <Option<T> as ArrayElement>::Slice<'_>,
     ) -> Result<(), ArrowError> {
         let slice: OptionSlice<T> = slice.into();
         // SAFETY: This transmute is safe for the same reason as above

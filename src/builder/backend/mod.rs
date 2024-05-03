@@ -22,11 +22,10 @@ mod primitive;
 // I should probably start with PrimitiveBuilder, then ListBuilder, then
 // StructBuilder, then UnionBuilder, and finish with special cases.
 
-use crate::{ArrayElement, SliceElement};
+use super::BuilderConfig;
+use crate::ArrayElement;
 use arrow_array::builder::ArrayBuilder;
 use std::fmt::Debug;
-
-use super::BuilderConfig;
 
 /// Arrow builder that can accept strongly typed entries of type `T`
 pub trait TypedBackend<T: ArrayElement + ?Sized>: Backend {
@@ -37,7 +36,13 @@ pub trait TypedBackend<T: ArrayElement + ?Sized>: Backend {
     fn new(config: BuilderConfig<T>) -> Self;
 
     /// Append a single element into the builder
+    ///
+    /// Implementors should almost always make this operation `#[inline]` to
+    /// allow for cross-crate inlining.
     fn push(&mut self, v: T::Value<'_>);
+
+    /// Append values into the builder in bulk
+    fn extend_from_slice(&mut self, s: T::Slice<'_>) -> T::ExtendFromSliceResult;
 }
 
 /// Subset of `TypedBackend<T>` functionality that does not depend on `T`
@@ -61,21 +66,4 @@ pub trait Backend: ArrayBuilder + Debug {
 pub trait ValiditySlice: Backend {
     /// Returns the current null buffer as a slice
     fn validity_slice(&self) -> Option<&[u8]>;
-}
-
-/// Bulk-insertion of [`SliceElement`]s into corresponding arrow arrays
-//
-// --- Implementation notes ---
-//
-// In the interest of reducing the number of traits that maintainers of this
-// code need to juggle with, this should arguably be an optional method of
-// [`TypedBackend`] with a `where T: SliceElement` bound.
-//
-// Alas rustc's trait solver is not yet ready for this because until
-// https://github.com/rust-lang/rust/issues/48214 is resolved, it will results
-// in `TypedBackend` being unimplementable when T **does not** implement
-// `SliceElement`. Therefore, a separate trait is needed for now.
-pub trait ExtendFromSlice<T: SliceElement + ?Sized>: TypedBackend<T> {
-    /// Append values into the builder in bulk
-    fn extend_from_slice(&mut self, s: T::Slice<'_>) -> T::ExtendFromSliceResult;
 }
