@@ -36,8 +36,8 @@ where
 {
     type Config = ();
 
-    fn new(params: BuilderConfig<T>) -> Self {
-        if let Some(capacity) = params.capacity {
+    fn new(config: BuilderConfig<T>) -> Self {
+        if let Some(capacity) = config.capacity {
             Self::with_capacity(capacity)
         } else {
             Self::new()
@@ -65,8 +65,8 @@ where
 {
     type Config = ();
 
-    fn new(params: BuilderConfig<Option<T>>) -> Self {
-        if let Some(capacity) = params.capacity {
+    fn new(config: BuilderConfig<Option<T>>) -> Self {
+        if let Some(capacity) = config.capacity {
             Self::with_capacity(capacity)
         } else {
             Self::new()

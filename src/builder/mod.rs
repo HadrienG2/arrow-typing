@@ -13,23 +13,20 @@ use std::fmt::{self, Debug, Formatter};
 #[derive(Debug)]
 pub struct TypedBuilder<T: ArrayElement + ?Sized>(BuilderBackend<T>);
 //
+/// The following constructors are available for simple element types like
+/// primitive types which require no extra configuration. More complex element
+/// types (e.g. fixed-sized lists of dynamically defined extent) will need to be
+/// configured using the [`TypedBuilder::with_config()`] constructor.
 impl<T: ArrayElement + ?Sized> TypedBuilder<T>
 where
     BackendConfig<T>: Default,
 {
     /// Create a new array builder with the default configuration
-    ///
-    /// This constructor is availble for simple element types like primitive
-    /// types which require no extra configuration. More complex element types
-    /// (e.g. fixed-sized lists of dynamically defined extent) will need to be
-    /// configured using the [`TypedBuilder::with_config()`] constructor.
     pub fn new() -> Self {
         Self(BuilderBackend::<T>::new(BuilderConfig::<T>::new()))
     }
 
     /// Create a new array builder with space for `capacity` elements
-    ///
-    /// See remark on [`new()`] concerning availability of this constructor.
     pub fn with_capacity(capacity: usize) -> Self {
         Self(BuilderBackend::<T>::new(BuilderConfig::<T>::with_capacity(
             capacity,
@@ -172,6 +169,10 @@ pub struct BuilderConfig<T: ArrayElement + ?Sized> {
     backend: BackendConfig<T>,
 }
 //
+/// The following constructors are available for simple element types like
+/// primitive types which require no extra configuration. More complex element
+/// types (e.g. fixed-sized lists of dynamically defined extent) will need to be
+/// configured using one of the other constructors.
 impl<T: ArrayElement + ?Sized> BuilderConfig<T>
 where
     BackendConfig<T>: Default,

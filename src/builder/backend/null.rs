@@ -17,8 +17,8 @@ impl Backend for NullBuilder {
 impl TypedBackend<Null> for NullBuilder {
     type Config = ();
 
-    fn new(params: BuilderConfig<Null>) -> Self {
-        if let Some(capacity) = params.capacity {
+    fn new(config: BuilderConfig<Null>) -> Self {
+        if let Some(capacity) = config.capacity {
             Self::with_capacity(capacity)
         } else {
             Self::new()

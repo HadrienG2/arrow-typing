@@ -30,11 +30,11 @@ use super::BuilderConfig;
 
 /// Arrow builder that can accept strongly typed entries of type `T`
 pub trait TypedBackend<T: ArrayElement + ?Sized>: Backend {
-    /// Constructor parameters other than inner array builders
+    /// Configuration needed to construct a builder backend for this type
     type Config;
 
-    /// Create a new builder with no underlying buffer allocation
-    fn new(params: BuilderConfig<T>) -> Self;
+    /// Create a new builder backend
+    fn new(config: BuilderConfig<T>) -> Self;
 
     /// Append a single element into the builder
     fn push(&mut self, v: T::Value<'_>);

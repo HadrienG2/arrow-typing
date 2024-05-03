@@ -24,8 +24,8 @@ impl ValiditySlice for BooleanBuilder {
 impl TypedBackend<bool> for BooleanBuilder {
     type Config = ();
 
-    fn new(params: BuilderConfig<bool>) -> Self {
-        if let Some(capacity) = params.capacity {
+    fn new(config: BuilderConfig<bool>) -> Self {
+        if let Some(capacity) = config.capacity {
             Self::with_capacity(capacity)
         } else {
             Self::new()
@@ -41,8 +41,8 @@ impl TypedBackend<bool> for BooleanBuilder {
 impl TypedBackend<Option<bool>> for BooleanBuilder {
     type Config = ();
 
-    fn new(params: BuilderConfig<Option<bool>>) -> Self {
-        if let Some(capacity) = params.capacity {
+    fn new(config: BuilderConfig<Option<bool>>) -> Self {
+        if let Some(capacity) = config.capacity {
             Self::with_capacity(capacity)
         } else {
             Self::new()
