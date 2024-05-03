@@ -30,7 +30,7 @@ use std::fmt::Debug;
 /// Arrow builder that can accept strongly typed entries of type `T`
 pub trait TypedBackend<T: ArrayElement + ?Sized>: Backend {
     /// Configuration needed to construct a builder backend for this type
-    type Config;
+    type Config: Clone + Debug + Eq + PartialEq;
 
     /// Create a new builder backend
     fn new(config: BuilderConfig<T>) -> Self;

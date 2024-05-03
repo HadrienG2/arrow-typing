@@ -1,10 +1,19 @@
 //! Strongly typed interface to arrow-rs' [`DataType`]s
 
-use crate::ArrayElement;
+use crate::{ArrayElement, OptionSlice};
+use arrow_array::builder::{
+    BooleanBuilder, Date32Builder, Date64Builder, DurationMicrosecondBuilder,
+    DurationMillisecondBuilder, DurationNanosecondBuilder, DurationSecondBuilder, Float16Builder,
+    Float32Builder, Float64Builder, Int16Builder, Int32Builder, Int64Builder, Int8Builder,
+    IntervalDayTimeBuilder, IntervalMonthDayNanoBuilder, IntervalYearMonthBuilder,
+    Time32MillisecondBuilder, Time32SecondBuilder, Time64MicrosecondBuilder,
+    Time64NanosecondBuilder, UInt16Builder, UInt32Builder, UInt64Builder, UInt8Builder,
+};
 use arrow_array::{
     builder::{NullBuilder, PrimitiveBuilder},
     types::*,
 };
+use arrow_schema::ArrowError;
 #[cfg(doc)]
 use arrow_schema::DataType;
 use half::f16;
@@ -15,7 +24,7 @@ use std::{fmt::Debug, marker::PhantomData, num::TryFromIntError};
 // === Strong value types matching non-std Arrow DataTypes ===
 
 /// A value that is always null
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Null;
 //
 // SAFETY: Null is not a PrimitiveType and is therefore not concerned by
@@ -30,7 +39,7 @@ unsafe impl ArrayElement for Null {
 }
 
 /// Date type representing the elapsed time since the UNIX epoch in days
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 #[repr(transparent)]
 pub struct Date<T>(T);
 //
@@ -69,19 +78,19 @@ impl From<Date64> for i64 {
     }
 }
 
-// TODO: Waiting for generic_const_expr rustc feature to be able to expose the
+// TODO: Waiting for adt_const_params rustc feature to be able to expose the
 //       desired strongly typed version of the Decimal type family:
 //
 //       #[derive(Clone, Copy, Debug)]
 //       #[repr(transparent)]
 //       pub struct Decimal<
 //           T: DecimalRepr,
-//           const PRECISION: u8 = { <T as DecimalRepr>::MAX_PRECISION },
-//           const SCALE: i8 = { <T as DecimalRepr>::DEFAULT_SCALE },
+//           const PRECISION: Option<u8> = None,
+//           const SCALE: Option<i8> = None,
 //       >(T);
 
 /// Measure of elapsed time with a certain integer unit
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 #[repr(transparent)]
 pub struct Duration<Unit: TimeUnit>(i64, PhantomData<Unit>);
 //
@@ -175,7 +184,7 @@ impl TryFrom<StdDuration> for Duration<Nanosecond> {
 }
 
 /// "Calendar" time interval in days and milliseconds
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 #[repr(transparent)]
 pub struct IntervalDayTime(i64);
 //
@@ -222,7 +231,7 @@ impl From<IntervalDayTime> for i64 {
 }
 
 /// "Calendar" time interval in months, days and nanoseconds
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 #[repr(transparent)]
 pub struct IntervalMonthDayNano(i128);
 //
@@ -270,7 +279,7 @@ impl From<IntervalMonthDayNano> for i128 {
 }
 
 /// "Calendar" time interval stored as a number of whole months
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 #[repr(transparent)]
 pub struct IntervalYearMonth(i32);
 //
@@ -320,7 +329,7 @@ impl From<IntervalYearMonth> for i32 {
 }
 
 /// Elapsed time since midnight
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 #[repr(transparent)]
 pub struct Time<Unit: TimeUnit>(<Unit as TimeUnit>::TimeStorage);
 //
@@ -409,13 +418,13 @@ impl From<Time<Nanosecond>> for i64 {
 //       >(i64);
 
 /// Unit of time
-pub trait TimeUnit: Copy + Clone + Debug {
+pub trait TimeUnit: Debug {
     /// Storage format for time since midnight in this unit
-    type TimeStorage: Clone + Copy + Debug;
+    type TimeStorage: Clone + Copy + Debug + Default;
 }
 
 /// Second duration storage granularity
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Second;
 //
 impl TimeUnit for Second {
@@ -423,7 +432,7 @@ impl TimeUnit for Second {
 }
 
 /// Millisecond duration storage granularity
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Millisecond;
 //
 impl TimeUnit for Millisecond {
@@ -431,7 +440,7 @@ impl TimeUnit for Millisecond {
 }
 
 /// Microsecond duration storage granularity
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Microsecond;
 //
 impl TimeUnit for Microsecond {
@@ -439,7 +448,7 @@ impl TimeUnit for Microsecond {
 }
 
 /// Nanosecond duration storage granularity
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Nanosecond;
 //
 impl TimeUnit for Nanosecond {
@@ -507,3 +516,64 @@ unsafe_impl_primitive_type!(
 
 // Easy access to the NativeType backing a PrimitiveType
 pub(crate) type NativeType<T> = <<T as PrimitiveType>::Arrow as ArrowPrimitiveType>::Native;
+
+// Enable strongly typed arrays of primitive types
+macro_rules! impl_primitive_element {
+    ($($element:ty => $builder:ty),*) => {
+        $(
+            // SAFETY: By construction, it is enforced that Slice is &[Self]
+            unsafe impl ArrayElement for $element {
+                type BuilderBackend = $builder;
+                type Value<'a> = Self;
+                type Slice<'a> = &'a [Self];
+                type ExtendFromSliceResult = ();
+            }
+
+            // NOTE: I tried to make this blanket-impl'd for Option<T> where
+            //       T::BuilderBackend: TypedBackend<Option<T>>, but this caused
+            //       problems down the line where backends were not recognized
+            //       by the trait solver as implementing TypedBackend<Option<T>>
+            //       because Option<T> did not implement ArrayElement. Let's
+            //       keep this macrofied for now.
+            //
+            // SAFETY: Option is not a primitive type and is therefore not
+            //         affected by the safety precondition of ArrayElement
+            unsafe impl ArrayElement for Option<$element> {
+                type BuilderBackend = $builder;
+                type Value<'a> = Option<$element>;
+                type Slice<'a> = OptionSlice<'a, $element>;
+                type ExtendFromSliceResult = Result<(), ArrowError>;
+            }
+        )*
+    };
+}
+//
+impl_primitive_element!(
+    bool => BooleanBuilder,
+    Date32 => Date32Builder,
+    Date64 => Date64Builder,
+    // TODO: Support decimals, see types module for rustc blocker info.
+    Duration<Microsecond> => DurationMicrosecondBuilder,
+    Duration<Millisecond> => DurationMillisecondBuilder,
+    Duration<Nanosecond> => DurationNanosecondBuilder,
+    Duration<Second> => DurationSecondBuilder,
+    f16 => Float16Builder,
+    f32 => Float32Builder,
+    f64 => Float64Builder,
+    i8 => Int8Builder,
+    i16 => Int16Builder,
+    i32 => Int32Builder,
+    i64 => Int64Builder,
+    IntervalDayTime => IntervalDayTimeBuilder,
+    IntervalMonthDayNano => IntervalMonthDayNanoBuilder,
+    IntervalYearMonth => IntervalYearMonthBuilder,
+    Time<Millisecond> => Time32MillisecondBuilder,
+    Time<Second> => Time32SecondBuilder,
+    Time<Microsecond> => Time64MicrosecondBuilder,
+    Time<Nanosecond> => Time64NanosecondBuilder,
+    // TODO: Support timestamps, see types module for rustc blocker info.
+    u8 => UInt8Builder,
+    u16 => UInt16Builder,
+    u32 => UInt32Builder,
+    u64 => UInt64Builder
+);

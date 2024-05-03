@@ -7,7 +7,6 @@ use self::backend::{Backend, TypedBackend};
 use crate::{types::primitive::PrimitiveType, OptionSlice};
 use crate::{validity::ValiditySlice, ArrayElement, NullableElement};
 use arrow_array::builder::ArrayBuilder;
-use std::fmt::{self, Debug, Formatter};
 
 /// Strongly typed array builder
 #[derive(Debug)]
@@ -274,7 +273,7 @@ impl<'a, T: ArrayElement + ?Sized> Extend<T::Value<'a>> for TypedBuilder<T> {
 }
 
 /// Configuration needed to construct a [`TypedBuilder`]
-#[derive()]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BuilderConfig<T: ArrayElement + ?Sized> {
     /// Minimal number of elements this builder can accept without reallocating
     capacity: Option<usize>,
@@ -305,30 +304,6 @@ where
     }
 }
 //
-impl<T: ArrayElement + ?Sized> Clone for BuilderConfig<T>
-where
-    BackendConfig<T>: Clone,
-{
-    fn clone(&self) -> Self {
-        Self {
-            capacity: self.capacity,
-            backend: self.backend.clone(),
-        }
-    }
-}
-//
-impl<T: ArrayElement + ?Sized> Debug for BuilderConfig<T>
-where
-    BackendConfig<T>: Debug,
-{
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        f.debug_struct("BuilderConfig")
-            .field("capacity", &self.capacity)
-            .field("backend", &self.backend)
-            .finish()
-    }
-}
-//
 impl<T: ArrayElement + ?Sized> Default for BuilderConfig<T>
 where
     BackendConfig<T>: Default,
@@ -338,17 +313,6 @@ where
             capacity: None,
             backend: Default::default(),
         }
-    }
-}
-//
-impl<T: ArrayElement + ?Sized> Eq for BuilderConfig<T> where BackendConfig<T>: Eq {}
-//
-impl<T: ArrayElement + ?Sized> PartialEq for BuilderConfig<T>
-where
-    BackendConfig<T>: PartialEq,
-{
-    fn eq(&self, other: &Self) -> bool {
-        self.capacity == other.capacity && self.backend == other.backend
     }
 }
 

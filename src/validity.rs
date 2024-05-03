@@ -1,9 +1,12 @@
 //! Strongly typed array validity bitmaps
 
-use std::iter::{FusedIterator, Take};
+use std::{
+    cmp::Ordering,
+    iter::{FusedIterator, Take},
+};
 
 /// Strongly typed view of an Arrow validity bitmap
-#[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ValiditySlice<'array> {
     /// Validity bitmap
     bitmap: &'array [u8],
@@ -93,6 +96,12 @@ impl<'slice> IntoIterator for &'slice ValiditySlice<'slice> {
 impl PartialEq<&[bool]> for ValiditySlice<'_> {
     fn eq(&self, other: &&[bool]) -> bool {
         self.iter().eq(other.iter().copied())
+    }
+}
+//
+impl PartialOrd<&[bool]> for ValiditySlice<'_> {
+    fn partial_cmp(&self, other: &&[bool]) -> Option<Ordering> {
+        Some(self.iter().cmp(other.iter().copied()))
     }
 }
 

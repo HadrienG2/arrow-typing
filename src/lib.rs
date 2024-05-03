@@ -5,22 +5,11 @@ pub mod builder;
 pub mod types;
 pub mod validity;
 
+use crate::types::primitive::Null;
 #[cfg(doc)]
 use crate::types::primitive::PrimitiveType;
-use crate::types::primitive::{
-    Date32, Date64, Duration, IntervalDayTime, IntervalMonthDayNano, IntervalYearMonth,
-    Microsecond, Millisecond, Nanosecond, Null, Second, Time,
-};
-use arrow_array::builder::{
-    BooleanBuilder, Date32Builder, Date64Builder, DurationMicrosecondBuilder,
-    DurationMillisecondBuilder, DurationNanosecondBuilder, DurationSecondBuilder, Float16Builder,
-    Float32Builder, Float64Builder, Int16Builder, Int32Builder, Int64Builder, Int8Builder,
-    IntervalDayTimeBuilder, IntervalMonthDayNanoBuilder, IntervalYearMonthBuilder,
-    Time32MillisecondBuilder, Time32SecondBuilder, Time64MicrosecondBuilder,
-    Time64NanosecondBuilder, UInt16Builder, UInt32Builder, UInt64Builder, UInt8Builder,
-};
+#[cfg(doc)]
 use arrow_schema::ArrowError;
-use half::f16;
 use std::fmt::Debug;
 
 pub use builder::TypedBuilder;
@@ -44,7 +33,7 @@ pub unsafe trait ArrayElement: Debug + Send + Sync + 'static {
     ///
     /// For example, lists of primitive types T are best read and written as
     /// slices `&[T]`.
-    type Value<'a>;
+    type Value<'a>: Debug;
 
     /// Slice type used for bulk insertion and readout
     ///
@@ -54,7 +43,7 @@ pub unsafe trait ArrayElement: Debug + Send + Sync + 'static {
     /// For example, nullable primitive types like `Option<u16>` are
     /// bulk-manipulated using [`OptionSlice`] batches. And tuple types like
     /// `(T, U, V)` are bulk-manipulated using `(&[T], &[U], &[V])` batches.
-    type Slice<'a>;
+    type Slice<'a>: Debug;
 
     /// Return type of [`TypedBuilder::extend_from_slice()`].
     ///
@@ -99,67 +88,6 @@ where
         }
     }
 }
-
-// Enable strongly typed arrays of primitive types
-macro_rules! impl_primitive_element {
-    ($($element:ty => $builder:ty),*) => {
-        $(
-            // SAFETY: By construction, it is enforced that Slice is &[Self]
-            unsafe impl ArrayElement for $element {
-                type BuilderBackend = $builder;
-                type Value<'a> = Self;
-                type Slice<'a> = &'a [Self];
-                type ExtendFromSliceResult = ();
-            }
-
-            // NOTE: I tried to make this blanket-impl'd for Option<T> where
-            //       T::BuilderBackend: TypedBackend<Option<T>>, but this caused
-            //       problems down the line where backends were not recognized
-            //       by the trait solver as implementing TypedBackend<Option<T>>
-            //       because Option<T> did not implement ArrayElement. Let's
-            //       keep this macrofied for now.
-            //
-            // SAFETY: Option is not a primitive type and is therefore not
-            //         affected by the safety precondition of ArrayElement
-            unsafe impl ArrayElement for Option<$element> {
-                type BuilderBackend = $builder;
-                type Value<'a> = Option<$element>;
-                type Slice<'a> = OptionSlice<'a, $element>;
-                type ExtendFromSliceResult = Result<(), ArrowError>;
-            }
-        )*
-    };
-}
-//
-impl_primitive_element!(
-    bool => BooleanBuilder,
-    Date32 => Date32Builder,
-    Date64 => Date64Builder,
-    // TODO: Support decimals, see types module for rustc blocker info.
-    Duration<Microsecond> => DurationMicrosecondBuilder,
-    Duration<Millisecond> => DurationMillisecondBuilder,
-    Duration<Nanosecond> => DurationNanosecondBuilder,
-    Duration<Second> => DurationSecondBuilder,
-    f16 => Float16Builder,
-    f32 => Float32Builder,
-    f64 => Float64Builder,
-    i8 => Int8Builder,
-    i16 => Int16Builder,
-    i32 => Int32Builder,
-    i64 => Int64Builder,
-    IntervalDayTime => IntervalDayTimeBuilder,
-    IntervalMonthDayNano => IntervalMonthDayNanoBuilder,
-    IntervalYearMonth => IntervalYearMonthBuilder,
-    Time<Millisecond> => Time32MillisecondBuilder,
-    Time<Second> => Time32SecondBuilder,
-    Time<Microsecond> => Time64MicrosecondBuilder,
-    Time<Nanosecond> => Time64NanosecondBuilder,
-    // TODO: Support timestamps, see types module for rustc blocker info.
-    u8 => UInt8Builder,
-    u16 => UInt16Builder,
-    u32 => UInt32Builder,
-    u64 => UInt64Builder
-);
 
 /// Shared test utilities
 #[cfg(test)]
