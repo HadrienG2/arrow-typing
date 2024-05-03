@@ -28,12 +28,13 @@ pub use builder::TypedBuilder;
 /// Strongly typed data which can be stored as an Arrow array element
 pub trait ArrayElement: Debug + Send + Sync + 'static {
     /// Array builder implementation
+    #[doc(hidden)]
     type BuilderBackend: builder::backend::TypedBackend<Self>;
 
     /// Array element type used for individual element writes and reads
     ///
     /// For simple types, this will just be `Self`. But for more complex types,
-    /// type system and/or efficiency constraints may force us to use a
+    /// type system, ergonomics and efficiency constraints may force us to use a
     /// different type.
     ///
     /// For example, lists of primitive types T are best read and written as
