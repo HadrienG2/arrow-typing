@@ -18,11 +18,18 @@ where
     BackendConfig<T>: Default,
 {
     /// Create a new array builder with the default configuration
+    ///
+    /// This constructor is availble for simple element types like primitive
+    /// types which require no extra configuration. More complex element types
+    /// (e.g. fixed-sized lists of dynamically defined extent) will need to be
+    /// configured using the [`TypedBuilder::with_config()`] constructor.
     pub fn new() -> Self {
         Self(BuilderBackend::<T>::new(BuilderConfig::<T>::new()))
     }
 
     /// Create a new array builder with space for `capacity` elements
+    ///
+    /// See remark on [`new()`] concerning availability of this constructor.
     pub fn with_capacity(capacity: usize) -> Self {
         Self(BuilderBackend::<T>::new(BuilderConfig::<T>::with_capacity(
             capacity,
@@ -31,7 +38,7 @@ where
 }
 //
 impl<T: ArrayElement + ?Sized> TypedBuilder<T> {
-    /// Create a new array builder with a custom configuration
+    /// Create a new array builder with an explicit configuration
     pub fn with_config(config: BuilderConfig<T>) -> Self {
         Self(BuilderBackend::<T>::new(config))
     }
@@ -51,9 +58,9 @@ impl<T: ArrayElement + ?Sized> TypedBuilder<T> {
 
     /// Append a single value into the builder
     ///
-    /// For types with a complex internal structure, such row-wise insertion may
-    /// be inefficient. Therefore, if you intend to insert many values, it is
-    /// advised that you do not do so by calling this method in a loop, but
+    /// For types with a complex internal structure, such element-wise insertion
+    /// may be inefficient. Therefore, if you intend to insert many values, it
+    /// is advised that you do not do so by calling this method in a loop, but
     /// instead look into the bulk insertion methods below.
     #[inline]
     pub fn push(&mut self, value: T::Value<'_>) {
@@ -64,7 +71,7 @@ impl<T: ArrayElement + ?Sized> TypedBuilder<T> {
     ///
     /// This operation is available for all element types that implement
     /// [`SliceElement`]. See the documentation of this trait for more
-    /// information on what you can expect from `T::Slice` and
+    /// information on what types you can expect for `T::Slice` and
     /// `T::ExtendFromSliceResult`.
     pub fn extend_from_slice(&mut self, s: T::Slice<'_>) -> T::ExtendFromSliceResult
     where
@@ -230,10 +237,13 @@ where
     }
 }
 
-/// Configuration that is specific to a given element type `T`
+/// Shortcut to the arrow builder type used to construct an array of Ts
+type BuilderBackend<T> = <T as ArrayElement>::BuilderBackend;
+
+/// Array builder configuration that is specific to a given element type `T`
 ///
 /// Arrays of simple types can be built with no extra configuration. For these
-/// array types the configuration is a simple `()` unit value, and
+/// array types the backend configuration is a simple `()` unit value, and
 /// `TypedBuilder` will provide simple `new()` and `with_capacity()`
 /// constructors and implement `Default`.
 ///
@@ -241,13 +251,8 @@ where
 /// arrays of fixed-sized lists where the list size is chosen at runtime need to
 /// be configured with an inner sublist size. In this case, the
 /// [`TypedBuilder::with_config()`] constructor must be used, and it will
-/// receive this configuration struct as a parameter.
-//
-// TODO: Be more specific about what to expect here
-type BackendConfig<T> = <<T as ArrayElement>::BuilderBackend as TypedBackend<T>>::Config;
-
-/// Shortcut to the arrow builder type used to construct an array of Ts
-type BuilderBackend<T> = <T as ArrayElement>::BuilderBackend;
+/// directly or indirectly receive this configuration type as a parameter.
+type BackendConfig<T> = <BuilderBackend<T> as TypedBackend<T>>::Config;
 
 #[allow(private_bounds)]
 #[cfg(test)]
