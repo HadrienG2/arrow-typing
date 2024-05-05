@@ -2,14 +2,6 @@
 
 use crate::impl_option_element;
 use crate::ArrayElement;
-use arrow_array::builder::{
-    BooleanBuilder, Date32Builder, Date64Builder, DurationMicrosecondBuilder,
-    DurationMillisecondBuilder, DurationNanosecondBuilder, DurationSecondBuilder, Float16Builder,
-    Float32Builder, Float64Builder, Int16Builder, Int32Builder, Int64Builder, Int8Builder,
-    IntervalDayTimeBuilder, IntervalMonthDayNanoBuilder, IntervalYearMonthBuilder,
-    Time32MillisecondBuilder, Time32SecondBuilder, Time64MicrosecondBuilder,
-    Time64NanosecondBuilder, UInt16Builder, UInt32Builder, UInt64Builder, UInt8Builder,
-};
 use arrow_array::{
     builder::{NullBuilder, PrimitiveBuilder},
     types::*,
@@ -473,12 +465,26 @@ pub unsafe trait PrimitiveType:
     type Arrow: ArrowPrimitiveType + Debug;
 }
 //
+// Easy access to the ArrowPrimitiveType backing a PrimitiveType
+type ArrowType<T> = <T as PrimitiveType>::Arrow;
+//
+// Easy access to the NativeType backing a PrimitiveType
+pub(crate) type NativeType<T> = <ArrowType<T> as ArrowPrimitiveType>::Native;
+//
 macro_rules! unsafe_impl_primitive_type {
     ($($local:ty => $arrow:ty),*) => {
         $(
             unsafe impl PrimitiveType for $local {
                 type Arrow = $arrow;
             }
+            // SAFETY: By construction, it is enforced that Slice is &[Self]
+            unsafe impl ArrayElement for $local {
+                type BuilderBackend = PrimitiveBuilder<ArrowType<$local>>;
+                type Value<'a> = Self;
+                type Slice<'a> = &'a [Self];
+                type ExtendFromSliceResult = ();
+            }
+            impl_option_element!($local);
         )*
     };
 }
@@ -512,53 +518,4 @@ unsafe_impl_primitive_type!(
     u16 => UInt16Type,
     u32 => UInt32Type,
     u64 => UInt64Type
-);
-
-// Easy access to the NativeType backing a PrimitiveType
-pub(crate) type NativeType<T> = <<T as PrimitiveType>::Arrow as ArrowPrimitiveType>::Native;
-
-// Enable strongly typed arrays of primitive types
-macro_rules! impl_primitive_element {
-    ($($element:ty => $builder:ty),*) => {
-        $(
-            // SAFETY: By construction, it is enforced that Slice is &[Self]
-            unsafe impl ArrayElement for $element {
-                type BuilderBackend = $builder;
-                type Value<'a> = Self;
-                type Slice<'a> = &'a [Self];
-                type ExtendFromSliceResult = ();
-            }
-            impl_option_element!($element);
-        )*
-    };
-}
-//
-impl_primitive_element!(
-    bool => BooleanBuilder,
-    Date32 => Date32Builder,
-    Date64 => Date64Builder,
-    // TODO: Support decimals, see types module for rustc blocker info.
-    Duration<Microsecond> => DurationMicrosecondBuilder,
-    Duration<Millisecond> => DurationMillisecondBuilder,
-    Duration<Nanosecond> => DurationNanosecondBuilder,
-    Duration<Second> => DurationSecondBuilder,
-    f16 => Float16Builder,
-    f32 => Float32Builder,
-    f64 => Float64Builder,
-    i8 => Int8Builder,
-    i16 => Int16Builder,
-    i32 => Int32Builder,
-    i64 => Int64Builder,
-    IntervalDayTime => IntervalDayTimeBuilder,
-    IntervalMonthDayNano => IntervalMonthDayNanoBuilder,
-    IntervalYearMonth => IntervalYearMonthBuilder,
-    Time<Millisecond> => Time32MillisecondBuilder,
-    Time<Second> => Time32SecondBuilder,
-    Time<Microsecond> => Time64MicrosecondBuilder,
-    Time<Nanosecond> => Time64NanosecondBuilder,
-    // TODO: Support timestamps, see types module for rustc blocker info.
-    u8 => UInt8Builder,
-    u16 => UInt16Builder,
-    u32 => UInt32Builder,
-    u64 => UInt64Builder
 );
