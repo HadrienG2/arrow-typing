@@ -1,7 +1,6 @@
 //! Strongly typed interface to arrow-rs' [`DataType`]s
 
-use crate::impl_option_element;
-use crate::ArrayElement;
+use crate::{impl_option_element, ArrayElement, Slice};
 use arrow_array::{
     builder::{NullBuilder, PrimitiveBuilder},
     types::*,
@@ -28,6 +27,27 @@ unsafe impl ArrayElement for Null {
     /// nulls in it, so we make it literally a count of nulls
     type Slice<'a> = usize;
     type ExtendFromSliceResult = ();
+}
+//
+impl Slice for usize {
+    type Value = Null;
+
+    fn has_consistent_lens(&self) -> bool {
+        true
+    }
+
+    fn len(&self) -> usize {
+        *self
+    }
+
+    fn iter_cloned(&self) -> impl Iterator<Item = Self::Value> + '_ {
+        std::iter::repeat(Null).take(*self)
+    }
+
+    fn split_at(&self, index: usize) -> (Self, Self) {
+        assert!(index <= *self, "split point is above total null count");
+        (index, self - index)
+    }
 }
 
 /// Date type representing the elapsed time since the UNIX epoch in days

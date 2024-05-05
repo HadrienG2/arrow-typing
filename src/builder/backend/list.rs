@@ -1,12 +1,12 @@
 //! Strong typing layer on top of [`GenericListBuilder`]
 
 use crate::{
-    builder::{BackendConfig, BuilderConfig},
-    types::list::{List, ListSlice},
-    ArrayElement,
+    builder::BuilderConfig,
+    types::list::{List, ListSlice, OptionListSlice},
+    ArrayElement, Slice,
 };
 use arrow_array::{
-    builder::{ArrayBuilder, GenericListBuilder, ListBuilder},
+    builder::{ArrayBuilder, GenericListBuilder},
     OffsetSizeTrait,
 };
 use arrow_schema::ArrowError;
@@ -41,6 +41,8 @@ impl<OffsetSize: OffsetSizeTrait, T: ArrayElement> TypedBackend<List<T, OffsetSi
         } else {
             Self::new(backend)
         }
+        // FIXME: Manually adjust field configuration to let the user specify
+        //        the field name and mark it as non-nullable.
     }
 
     #[inline]
@@ -50,75 +52,55 @@ impl<OffsetSize: OffsetSizeTrait, T: ArrayElement> TypedBackend<List<T, OffsetSi
     }
 
     fn extend_from_slice(&mut self, s: ListSlice<'_, T>) -> Result<(), ArrowError> {
-        let mut values = s.values;
-
-        let total_len = s.lengths.iter().sum::<usize>();
-        if total_len != values.len() {
+        if !s.has_consistent_lens() {
             return Err(ArrowError::InvalidArgumentError(
                 "sum of sublist lengths should equate value buffer length".to_string(),
             ));
         }
-
-        for list_len in s.lengths {
-            let (sublist, rest) = values.split_at(list_len);
-            self.push(sublist);
-            values = rest;
+        for sublist in s.iter_cloned() {
+            <Self as TypedBackend<List<T, OffsetSize>>>::push(self, sublist);
         }
         Ok(())
     }
 }
 
-// TODO: Also implement for Option<List<T, OffsetSize>> (see below for
-//       inspiration)
-
-/*
-
-impl<T: PrimitiveType> TypedBackend<Option<T>> for PrimitiveBuilder<T::Arrow>
-where
-    // FIXME: Remove this bound once the Rust trait system supports adding the
-    //        appropriate bounds on PrimitiveType to let rustc figure out that
-    //        T::Value<'_> is just T for primitive types (and thus T::Value must
-    //        implement Into<NativeType<T>> per PrimitiveType definition)
-    for<'a> T::Value<'a>: Into<NativeType<T>>,
-    //
-    // FIXME: Remove these bounds once it becomes possible to blanket-impl
-    //        ArrayElement for Option<T: PrimitiveType>, making them obvious.
-    Option<T>: ArrayElement<ExtendFromSliceResult = Result<(), ArrowError>>,
-    for<'a> <Option<T> as ArrayElement>::Value<'a>: Into<Option<T::Value<'a>>>,
-    for<'a> <Option<T> as ArrayElement>::Slice<'a>: Into<OptionSlice<'a, T>>,
+impl<OffsetSize: OffsetSizeTrait, T: ArrayElement> TypedBackend<Option<List<T, OffsetSize>>>
+    for GenericListBuilder<OffsetSize, T::BuilderBackend>
 {
-    type Config = ();
+    type Config = BuilderConfig<T>;
 
-    fn new(config: BuilderConfig<Option<T>>) -> Self {
+    fn new(config: BuilderConfig<Option<List<T, OffsetSize>>>) -> Self {
+        let backend = T::BuilderBackend::new(config.backend);
         if let Some(capacity) = config.capacity {
-            Self::with_capacity(capacity)
+            Self::with_capacity(backend, capacity)
         } else {
-            Self::new()
+            Self::new(backend)
         }
+        // FIXME: Manually adjust field configuration to let the user specify
+        //        the field name and mark it as non-nullable.
     }
 
     #[inline]
-    fn push(&mut self, v: <Option<T> as ArrayElement>::Value<'_>) {
-        let opt: Option<T::Value<'_>> = v.into();
-        let opt: Option<NativeType<T>> = opt.map(Into::into);
-        self.append_option(opt)
+    fn push(&mut self, s: Option<T::Slice<'_>>) {
+        if let Some(slice) = s {
+            self.values().extend_from_slice(slice);
+            self.append(true)
+        } else {
+            self.append(false)
+        }
     }
 
-    fn extend_from_slice(
-        &mut self,
-        slice: <Option<T> as ArrayElement>::Slice<'_>,
-    ) -> Result<(), ArrowError> {
-        let slice: OptionSlice<T> = slice.into();
-        // SAFETY: This transmute is safe for the same reason as above
-        let native_values =
-            unsafe { std::mem::transmute_copy::<T::Slice<'_>, &[NativeType<T>]>(&slice.values) };
-        let res = std::panic::catch_unwind(AssertUnwindSafe(|| {
-            self.append_values(native_values, slice.is_valid)
-        }));
-        res.map_err(|_| {
-            ArrowError::InvalidArgumentError("Value and validity lengths must be equal".to_string())
-        })
+    fn extend_from_slice(&mut self, s: OptionListSlice<'_, T>) -> Result<(), ArrowError> {
+        if !s.has_consistent_lens() {
+            return Err(ArrowError::InvalidArgumentError(
+                "sum of sublist lengths should equate value buffer length".to_string(),
+            ));
+        }
+        for sublist in s.iter_cloned() {
+            <Self as TypedBackend<Option<List<T, OffsetSize>>>>::push(self, sublist);
+        }
+        Ok(())
     }
-} */
+}
 
 // TODO: Tests

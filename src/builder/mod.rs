@@ -370,9 +370,8 @@ type BackendConfig<T> = <BuilderBackend<T> as TypedBackend<T>>::Config;
 #[allow(private_bounds)]
 #[cfg(test)]
 mod tests {
-    use crate::OptionSlice;
-
     use super::*;
+    use crate::{OptionSlice, Slice};
     use arrow_schema::ArrowError;
     use backend::ValiditySlice;
     use proptest::{prelude::*, sample::SizeRange, test_runner::TestCaseResult};
@@ -532,7 +531,6 @@ mod tests {
         Option<T>: ArrayElement<BuilderBackend = BuilderBackend<T>>,
         BuilderBackend<T>: TypedBackend<Option<T>, Config = BackendConfig<T>>,
         BuilderBackend<Option<T>>: ValiditySlice,
-        for<'a> T::Slice<'a>: Slice<T::Value<'a>> + Clone,
         for<'a> T::Value<'a>: Clone + Into<<Option<T> as ArrayElement>::Value<'a>>,
     {
         let make_value_builder = || {
@@ -543,13 +541,13 @@ mod tests {
         };
         {
             let mut value_builder = make_value_builder();
-            value_builder.extend_from_slice(values.clone());
-            check_extend_outcome(&value_builder, init_capacity, values.slice_len())?;
+            value_builder.extend_from_slice(values);
+            check_extend_outcome(&value_builder, init_capacity, values.len())?;
         }
         {
             let mut value_builder = make_value_builder();
-            value_builder.extend(values.slice_iter().cloned());
-            check_extend_outcome(&value_builder, init_capacity, values.slice_len())?;
+            value_builder.extend(values.iter_cloned());
+            check_extend_outcome(&value_builder, init_capacity, values.len())?;
         }
 
         let make_opt_builder = || {
@@ -560,37 +558,17 @@ mod tests {
         };
         {
             let mut opt_builder = make_opt_builder();
-            opt_builder.extend_from_value_slice(values.clone());
-            check_extend_outcome(&opt_builder, init_capacity, values.slice_len())?;
-            check_validity(&opt_builder, &vec![true; values.slice_len()])?;
+            opt_builder.extend_from_value_slice(values);
+            check_extend_outcome(&opt_builder, init_capacity, values.len())?;
+            check_validity(&opt_builder, &vec![true; values.len()])?;
         }
         {
             let mut opt_builder = make_opt_builder();
-            opt_builder.extend(values.slice_iter().cloned().map(Into::into));
-            check_extend_outcome(&opt_builder, init_capacity, values.slice_len())?;
-            check_validity(&opt_builder, &vec![true; values.slice_len()])?;
+            opt_builder.extend(values.iter_cloned().map(Into::into));
+            check_extend_outcome(&opt_builder, init_capacity, values.len())?;
+            check_validity(&opt_builder, &vec![true; values.len()])?;
         }
         Ok(())
-    }
-    //
-    // FIXME: Migrate to public trait
-    trait Slice<T>: Clone {
-        fn slice_len(&self) -> usize;
-        fn slice_iter<'self_>(&'self_ self) -> impl Iterator<Item = &T> + 'self_
-        where
-            T: 'self_;
-    }
-    //
-    impl<T> Slice<T> for &[T] {
-        fn slice_len(&self) -> usize {
-            self.len()
-        }
-        fn slice_iter<'self_>(&'self_ self) -> impl Iterator<Item = &T> + 'self_
-        where
-            T: 'self_,
-        {
-            self.iter()
-        }
     }
 
     /// Generate building blocks for an `OptionSlice<T>`
@@ -634,7 +612,6 @@ mod tests {
     ) -> TestCaseResult
     where
         Option<T>: ArrayElement<ExtendFromSliceResult = Result<(), ArrowError>>,
-        for<'a> T::Slice<'a>: Slice<T>,
         for<'a> OptionSlice<'a, T>: Into<<Option<T> as ArrayElement>::Slice<'a>>,
         BuilderBackend<Option<T>>: ValiditySlice,
     {
@@ -642,16 +619,16 @@ mod tests {
             capacity: Some(init_capacity),
             backend: backend_config,
         });
-        let result = builder.extend_from_slice(slice.clone().into());
+        let result = builder.extend_from_slice(slice.into());
 
-        if slice.values.slice_len() != slice.is_valid.len() {
+        if slice.values.len() != slice.is_valid.len() {
             prop_assert!(result.is_err());
             check_init_with_capacity_outcome(&builder, Some(init_capacity))?;
             return Ok(());
         }
 
         prop_assert!(result.is_ok());
-        check_extend_outcome(&builder, init_capacity, slice.values.slice_len())?;
+        check_extend_outcome(&builder, init_capacity, slice.values.len())?;
         check_validity(&builder, slice.is_valid)?;
         Ok(())
     }
