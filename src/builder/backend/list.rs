@@ -2,8 +2,10 @@
 
 use crate::{
     builder::BuilderConfig,
-    types::list::{List, ListSlice, OptionListSlice},
-    ArrayElement, Slice,
+    elements::{
+        list::{List, ListSlice, OptionListSlice},
+        ArrayElement, Slice,
+    },
 };
 use arrow_array::{
     builder::{ArrayBuilder, GenericListBuilder},

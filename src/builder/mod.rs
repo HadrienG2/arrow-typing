@@ -6,11 +6,14 @@ use std::fmt::{self, Debug, Formatter};
 
 use self::backend::{Backend, Capacity, TypedBackend};
 #[cfg(doc)]
-use crate::{types::primitive::PrimitiveType, OptionSlice};
-use crate::{validity::ValiditySlice, ArrayElement, NullableElement};
+use crate::elements::{primitive::PrimitiveType, OptionSlice};
+use crate::{
+    elements::{ArrayElement, NullableElement},
+    validity::ValiditySlice,
+};
 use arrow_array::builder::ArrayBuilder;
 
-/// Strongly typed array builder
+/// Builder for an array whose elements are of type `T`
 #[derive(Debug)]
 pub struct TypedBuilder<T: ArrayElement>(BuilderBackend<T>);
 //
@@ -56,8 +59,7 @@ impl<T: ArrayElement> TypedBuilder<T> {
     /// Number of elements the array can hold without reallocating
     ///
     /// This operation is currently only available on `TypedBuilder`s of `Null`,
-    /// bool, primitive types, as well as `Option`s, tuples and lists whose leaf
-    /// types are one of these.
+    /// bool and primitive types, as well as `Option`s and tuples of such types.
     ///
     /// ```rust
     /// # use arrow_typing::TypedBuilder;
@@ -66,16 +68,11 @@ impl<T: ArrayElement> TypedBuilder<T> {
     /// ```
     ///
     /// In the case of types that are internally stored as multiple columnar
-    /// buffers, like structs or unions, a lower bound on the capacity of all
-    /// underlying columns is returned.
+    /// buffers, like tuples, a lower bound on the capacity of all underlying
+    /// columns is returned.
     //
     // TODO: Example
     ///
-    /// In the case of arrays of lists, array capacity is to be understood as
-    /// the number of sublists that the array can hold, not the cumulative
-    /// number of elements across all sublists.
-    //
-    // TODO: Example
     pub fn capacity(&self) -> usize
     where
         BuilderBackend<T>: Capacity,
@@ -122,7 +119,7 @@ impl<T: ArrayElement> TypedBuilder<T> {
     /// are passed as [`OptionSlice`]s:
     ///
     /// ```rust
-    /// # use arrow_typing::{TypedBuilder, OptionSlice};
+    /// # use arrow_typing::{TypedBuilder, elements::OptionSlice};
     /// let mut builder = TypedBuilder::<Option<f32>>::new();
     /// builder.extend_from_slice(OptionSlice {
     ///     values: &[
@@ -185,7 +182,7 @@ impl<T: ArrayElement> TypedBuilder<T> {
     /// type](NullableElement), i.e. `Null` or `Option<T>`.
     ///
     /// ```rust
-    /// # use arrow_typing::{TypedBuilder, types::primitive::Null};
+    /// # use arrow_typing::{TypedBuilder, elements::primitive::Null};
     /// let mut builder = TypedBuilder::<Null>::new();
     /// builder.extend_with_nulls(666);
     /// ```
@@ -241,7 +238,7 @@ where
     /// check which elements are valid.
     ///
     /// ```rust
-    /// # use arrow_typing::{TypedBuilder, OptionSlice};
+    /// # use arrow_typing::{TypedBuilder, elements::OptionSlice};
     /// let mut builder = TypedBuilder::<Option<f32>>::new();
     /// let validity: &[bool] = &[true, false, true];
     /// builder.extend_from_slice(OptionSlice {
@@ -355,14 +352,14 @@ type BuilderBackend<T> = <T as ArrayElement>::BuilderBackend;
 
 /// Array builder configuration that is specific to a given element type `T`
 ///
-/// Arrays of simple types can be built with no extra configuration. For these
-/// array types the backend configuration is a simple `()` unit value, and
+/// Arrays of simple element types can be built with no extra configuration. For
+/// these array types the backend configuration is a simple `()` unit value, and
 /// `TypedBuilder` will provide simple `new()` and `with_capacity()`
 /// constructors and implement `Default`.
 ///
-/// Arrays of more advanced types, however, need configuration. For example,
-/// arrays of fixed-sized lists where the list size is chosen at runtime need to
-/// be configured with an inner sublist size. In this case, the
+/// Arrays of more advanced element types, however, may need configuration. For
+/// example, arrays of fixed-sized lists where the list size is chosen at
+/// runtime need to be configured with an inner sublist size. In this case, the
 /// [`TypedBuilder::with_config()`] constructor must be used, and it will
 /// directly or indirectly receive this configuration type as a parameter.
 type BackendConfig<T> = <BuilderBackend<T> as TypedBackend<T>>::Config;
@@ -371,7 +368,7 @@ type BackendConfig<T> = <BuilderBackend<T> as TypedBackend<T>>::Config;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{OptionSlice, Slice};
+    use crate::elements::{OptionSlice, Slice};
     use arrow_schema::ArrowError;
     use backend::ValiditySlice;
     use proptest::{prelude::*, sample::SizeRange, test_runner::TestCaseResult};

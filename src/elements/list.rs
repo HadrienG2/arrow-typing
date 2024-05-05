@@ -1,27 +1,36 @@
-//! Rust mapping of Arrow's list types
+//! Grouping array elements in sublists
 
-use crate::{ArrayElement, Slice};
+use crate::elements::{ArrayElement, Slice};
 use arrow_array::{builder::GenericListBuilder, OffsetSizeTrait};
 use arrow_schema::ArrowError;
 use std::{fmt::Debug, marker::PhantomData};
 
-/// Marker type representing an Arrow list whose elements are of type T
+/// List of elements of type T
+///
+/// Uses 32-bit signed offsets by default, which limits the sum of sublist
+/// lengths to `2^31`. Use [`LargeList`] to go over this limit.
 #[derive(Copy, Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct List<T: ArrayElement + ?Sized, OffsetSize: OffsetSizeTrait = i32>(
     PhantomData<(T::Value<'static>, OffsetSize)>,
 );
 
-/// A [`List`] with a 64-bit element count
+/// A [`List`] with 64-bit offsets
 pub type LargeList<T> = List<T, i64>;
 
-/// Columnar alternative to `&[&[T]]` (by default) or `&[Option<&[T]>]` (in the
-/// [`OptionListSlice`] variant).
+/// Columnar alternative to a slice of slices
+///
+/// - The default configuration, with `usize` lengths, emulates `&[&[T]]`: each
+///   entry of `lengths` represents a sublist of a certain length within
+///   `values`.
+/// - The alternate [`OptionListSlice`] configuration, with `Option<usize>`,
+///   emulates `&[Option<&[T]>]` by additionally enabling null sublists to be
+///   specified using `None` entries in `lengths`.
 #[derive(Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ListSlice<'a, T: ArrayElement, Length: ListLength = usize> {
     /// Concatenated elements from all inner lists
     pub values: T::Slice<'a>,
 
-    /// Length of each sublist within `values`
+    /// Length of each sublist within `values`, or `None` for null lists
     pub lengths: &'a [Length],
 }
 //
@@ -75,11 +84,10 @@ impl<'a, T: ArrayElement, Length: ListLength> Slice for ListSlice<'a, T, Length>
 }
 
 /// Columnar alternative to `&[Option<&[T]>]`
-///
-/// Each entry of `lengths` that is `None` creates a null sublist.
 pub type OptionListSlice<'a, T> = ListSlice<'a, T, Option<usize>>;
 
-/// Type which can be used as a list length
+/// Type which can be used as a list length, i.e. `usize` or `Option<usize>`
+#[doc(hidden)]
 pub trait ListLength: Copy + Clone + Debug {
     /// Return type of `wrap_like_self`, see that for more info
     type WrappedLikeSelf<T: Debug>: Debug;

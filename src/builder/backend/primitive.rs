@@ -3,8 +3,10 @@
 use super::{Backend, Capacity, TypedBackend, ValiditySlice};
 use crate::{
     builder::BuilderConfig,
-    types::primitive::{NativeType, PrimitiveType},
-    ArrayElement, OptionSlice,
+    elements::{
+        primitive::{NativeType, PrimitiveType},
+        ArrayElement, OptionSlice,
+    },
 };
 use arrow_array::{builder::PrimitiveBuilder, types::ArrowPrimitiveType};
 use arrow_schema::ArrowError;
@@ -124,12 +126,14 @@ mod tests {
             check_init_default_optional, check_init_with_capacity_optional, check_push,
             check_push_option, option_vec,
         },
-        tests::length_or_capacity,
-        types::primitive::{
-            Date32, Date64, Duration, IntervalDayTime, IntervalMonthDayNano, IntervalYearMonth,
-            Microsecond, Millisecond, Nanosecond, Second, Time,
+        elements::{
+            primitive::{
+                Date32, Date64, Duration, IntervalDayTime, IntervalMonthDayNano, IntervalYearMonth,
+                Microsecond, Millisecond, Nanosecond, Second, Time,
+            },
+            OptionSlice,
         },
-        OptionSlice,
+        tests::length_or_capacity,
     };
     use proptest::{prelude::*, test_runner::TestCaseResult};
 

@@ -1,11 +1,11 @@
-//! Strongly typed array validity bitmaps
+//! Array validity bitmaps
 
 use std::{
     cmp::Ordering,
     iter::{FusedIterator, Take},
 };
 
-/// Strongly typed view of an Arrow validity bitmap
+/// Array validity bitmap
 #[derive(Copy, Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ValiditySlice<'array> {
     /// Validity bitmap
@@ -105,10 +105,10 @@ impl PartialOrd<&[bool]> for ValiditySlice<'_> {
     }
 }
 
-/// Iterator over the elements of an arrow validity slice
+/// Iterator over the elements of an array validity bitmap
 pub type Iter<'slice> = Take<BitmapIter<'slice>>;
 
-/// Iterator over the elements of an arrow bitmap
+/// Iterator over the elements of an Arrow-style bitmap
 #[derive(Clone, Debug, Default)]
 pub struct BitmapIter<'bytes> {
     /// Iterator over the bitmap's bytes

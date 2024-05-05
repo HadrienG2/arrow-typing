@@ -24,7 +24,7 @@ mod primitive;
 // StructBuilder, then UnionBuilder, and finish with special cases.
 
 use super::BuilderConfig;
-use crate::ArrayElement;
+use crate::elements::ArrayElement;
 use arrow_array::builder::ArrayBuilder;
 use std::fmt::Debug;
 
@@ -64,9 +64,10 @@ pub trait Backend: ArrayBuilder + Debug {
 ///
 /// In the case of arrays of lists, capacity is to be understood as the
 /// number of sublists that the array can hold, not the cumulative number of
-/// elements across all sublists.
+/// elements across all sublists. But this is not a concern yet since list
+/// builders do not currently expose capacity anyway.
 ///
-/// Finally, some backends unfortunately do not provide this information at all.
+/// Finally, some backends unfortunately do not expose capacity information.
 pub trait Capacity: Backend {
     /// Number of elements the builder can hold without reallocating
     fn capacity(&self) -> usize;

@@ -1,7 +1,7 @@
 //! Strong typing layer on top of [`BooleanBuilder`]
 
 use super::{Backend, Capacity, TypedBackend, ValiditySlice};
-use crate::{builder::BuilderConfig, OptionSlice};
+use crate::{builder::BuilderConfig, elements::OptionSlice};
 use arrow_array::builder::BooleanBuilder;
 use arrow_schema::ArrowError;
 
@@ -78,8 +78,8 @@ mod tests {
             check_init_default_optional, check_init_with_capacity_optional, check_push,
             check_push_option, option_vec,
         },
+        elements::OptionSlice,
         tests::length_or_capacity,
-        OptionSlice,
     };
     use proptest::{prelude::*, test_runner::TestCaseResult};
 

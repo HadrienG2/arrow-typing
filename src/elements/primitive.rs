@@ -1,18 +1,17 @@
-//! Strongly typed interface to arrow-rs' [`DataType`]s
+//! Primitive array element types
 
-use crate::{impl_option_element, ArrayElement, Slice};
+use super::{ArrayElement, Slice};
+use crate::impl_option_element;
 use arrow_array::{
-    builder::{NullBuilder, PrimitiveBuilder},
+    builder::{BooleanBuilder, NullBuilder, PrimitiveBuilder},
     types::*,
 };
-#[cfg(doc)]
-use arrow_schema::DataType;
 use half::f16;
 #[cfg(any(test, feature = "proptest"))]
 use proptest::prelude::*;
 use std::{fmt::Debug, marker::PhantomData, num::TryFromIntError};
 
-// === Strong value types matching non-std Arrow DataTypes ===
+// === Arrow primitive types other than DataTypes ===
 
 /// A value that is always null
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -49,6 +48,18 @@ impl Slice for usize {
         (index, self - index)
     }
 }
+
+// SAFETY: bool is not a PrimitiveType and is therefore not concerned by
+//         ArrayElement's safety contract.
+unsafe impl ArrayElement for bool {
+    type BuilderBackend = BooleanBuilder;
+    type Value<'a> = Self;
+    type Slice<'a> = &'a [Self];
+    type ExtendFromSliceResult = ();
+}
+impl_option_element!(bool);
+
+// === Strong value types matching non-std Arrow DataTypes ===
 
 /// Date type representing the elapsed time since the UNIX epoch in days
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
