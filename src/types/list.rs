@@ -14,7 +14,7 @@ pub struct List<T: ArrayElement + ?Sized, OffsetSize: OffsetSizeTrait = i32>(
 /// A [`List`] with a 64-bit element count
 pub type LargeList<T> = List<T, i64>;
 
-/// Columnar alternative to `&[&[T]]` (by default) or `&[Option<&[T]>]` (in
+/// Columnar alternative to `&[&[T]]` (by default) or `&[Option<&[T]>]` (in the
 /// [`OptionListSlice`] variant).
 #[derive(Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ListSlice<'a, T: ArrayElement, Length = usize> {
@@ -37,6 +37,8 @@ impl<'a, T: ArrayElement, Length: Clone> Clone for ListSlice<'a, T, Length> {
 impl<'a, T: ArrayElement, Length: Copy> Copy for ListSlice<'a, T, Length> {}
 
 /// Columnar alternative to `&[Option<&[T]>]`
+///
+/// Each entry of `lengths` that is `None` creates a new null sublist.
 pub type OptionListSlice<'a, T> = ListSlice<'a, T, Option<usize>>;
 
 // SAFETY: List is not a primitive type and is therefore not affected by the
@@ -48,7 +50,7 @@ unsafe impl<T: ArrayElement, OffsetSize: OffsetSizeTrait> ArrayElement for List<
     type ExtendFromSliceResult = Result<(), ArrowError>;
 }
 //
-// SAFETY: Option is not a primitive type and is therefore not
+/* // SAFETY: Option is not a primitive type and is therefore not
 //         affected by the safety precondition of ArrayElement
 unsafe impl<T: ArrayElement, OffsetSize: OffsetSizeTrait> ArrayElement
     for Option<List<T, OffsetSize>>
@@ -57,7 +59,7 @@ unsafe impl<T: ArrayElement, OffsetSize: OffsetSizeTrait> ArrayElement
     type Value<'a> = Option<T::Slice<'a>>;
     type Slice<'a> = OptionListSlice<'a, T>;
     type ExtendFromSliceResult = Result<(), ArrowError>;
-}
+} */
 
 // TODO: Add support for fixed-size lists, whether the size is known at
 //       compile-time (ConstSizedList<T, N, OffsetSize>) or at runtime
