@@ -1,9 +1,9 @@
 //! Strong typing layer on top of [`BooleanBuilder`]
 
-use super::{Backend, Capacity, TypedBackend, ValiditySlice};
+use super::{Backend, Capacity, NoAlternateConfig, TypedBackend, ValiditySlice};
 use crate::{builder::BuilderConfig, elements::OptionSlice};
 use arrow_array::builder::BooleanBuilder;
-use arrow_schema::ArrowError;
+use arrow_schema::{ArrowError, DataType, Field};
 
 impl Backend for BooleanBuilder {
     #[cfg(test)]
@@ -28,16 +28,35 @@ impl ValiditySlice for BooleanBuilder {
     }
 }
 
-impl TypedBackend<bool> for BooleanBuilder {
-    type Config = ();
+// Common parts of TypedBackend impls for bool and Option<bool>
+macro_rules! typed_backend_common {
+    ($element_type:ty, $is_option:literal) => {
+        type ExtraConfig = ();
+        type AlternateConfig = NoAlternateConfig;
 
-    fn new(config: BuilderConfig<bool>) -> Self {
-        if let Some(capacity) = config.capacity {
-            Self::with_capacity(capacity)
-        } else {
-            Self::new()
+        fn make_field(_config: &BuilderConfig<$element_type>, name: String) -> Field {
+            Field::new(name, DataType::Boolean, $is_option)
         }
-    }
+
+        fn new(config: BuilderConfig<$element_type>) -> Self {
+            let BuilderConfig::Standard {
+                capacity,
+                extra: (),
+            } = config
+            else {
+                unreachable!()
+            };
+            if let Some(capacity) = capacity {
+                Self::with_capacity(capacity)
+            } else {
+                Self::new()
+            }
+        }
+    };
+}
+
+impl TypedBackend<bool> for BooleanBuilder {
+    typed_backend_common!(bool, false);
 
     #[inline]
     fn push(&mut self, v: bool) {
@@ -50,15 +69,7 @@ impl TypedBackend<bool> for BooleanBuilder {
 }
 
 impl TypedBackend<Option<bool>> for BooleanBuilder {
-    type Config = ();
-
-    fn new(config: BuilderConfig<Option<bool>>) -> Self {
-        if let Some(capacity) = config.capacity {
-            Self::with_capacity(capacity)
-        } else {
-            Self::new()
-        }
-    }
+    typed_backend_common!(Option<bool>, true);
 
     #[inline]
     fn push(&mut self, v: Option<bool>) {
@@ -80,6 +91,7 @@ mod tests {
         },
         elements::OptionSlice,
         tests::length_or_capacity,
+        BuilderConfig,
     };
     use proptest::{prelude::*, test_runner::TestCaseResult};
 
@@ -96,17 +108,20 @@ mod tests {
 
         #[test]
         fn push_value(init_capacity in length_or_capacity(), value: bool) {
-            check_push::<bool>((), init_capacity, value)?;
+            check_push::<bool>(BuilderConfig::with_capacity(init_capacity), value)?;
         }
 
         #[test]
         fn push_option(init_capacity in length_or_capacity(), value: Option<bool>) {
-            check_push_option::<bool>((), init_capacity, value)?;
+            check_push_option::<bool>(BuilderConfig::with_capacity(init_capacity), value)?;
         }
 
         #[test]
         fn extend_from_values(init_capacity in length_or_capacity(), values: Vec<bool>) {
-            check_extend_from_values::<bool>(|| (), init_capacity, &values)?;
+            check_extend_from_values::<bool>(
+                || BuilderConfig::with_capacity(init_capacity),
+                &values
+            )?;
         }
 
         #[test]
@@ -114,10 +129,13 @@ mod tests {
             init_capacity in length_or_capacity(),
             (values, is_valid) in option_vec::<bool>(),
         ) {
-            check_extend_from_options::<bool>((), init_capacity, OptionSlice {
-                values: &values,
-                is_valid: &is_valid,
-            })?;
+            check_extend_from_options::<bool>(
+                BuilderConfig::with_capacity(init_capacity),
+                OptionSlice {
+                    values: &values,
+                    is_valid: &is_valid,
+                }
+            )?;
         }
 
         #[test]
@@ -125,7 +143,7 @@ mod tests {
             init_capacity in length_or_capacity(),
             num_nulls in length_or_capacity()
         ) {
-            check_extend_with_nulls::<bool>((), init_capacity, num_nulls)?;
+            check_extend_with_nulls::<bool>(BuilderConfig::with_capacity(init_capacity), num_nulls)?;
         }
     }
 }

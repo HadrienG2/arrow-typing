@@ -1,6 +1,6 @@
 //! Strong typing layer on top of [`PrimitiveBuilder`]
 
-use super::{Backend, Capacity, TypedBackend, ValiditySlice};
+use super::{Backend, Capacity, NoAlternateConfig, TypedBackend, ValiditySlice};
 use crate::{
     builder::BuilderConfig,
     elements::{
@@ -9,7 +9,7 @@ use crate::{
     },
 };
 use arrow_array::{builder::PrimitiveBuilder, types::ArrowPrimitiveType};
-use arrow_schema::ArrowError;
+use arrow_schema::{ArrowError, Field};
 use std::{fmt::Debug, panic::AssertUnwindSafe};
 
 impl<T: ArrowPrimitiveType + Debug> Backend for PrimitiveBuilder<T> {
@@ -35,6 +35,31 @@ impl<T: ArrowPrimitiveType + Debug> ValiditySlice for PrimitiveBuilder<T> {
     }
 }
 
+// Common parts of TypedBackend impls for T and Option<T>
+macro_rules! typed_backend_common {
+    ($element_type:ty, $is_option:literal) => {
+        type ExtraConfig = ();
+        type AlternateConfig = NoAlternateConfig;
+
+        fn make_field(_config: &BuilderConfig<$element_type>, name: String) -> Field {
+            // TODO: Once we start supporting Decimal and Timestamp, allow
+            //       config to affect the choice of data type.
+            Field::new(name, T::Arrow::DATA_TYPE, $is_option)
+        }
+
+        fn new(config: BuilderConfig<$element_type>) -> Self {
+            let BuilderConfig::Standard { capacity, extra: _ } = config else {
+                unreachable!()
+            };
+            if let Some(capacity) = capacity {
+                Self::with_capacity(capacity)
+            } else {
+                Self::new()
+            }
+        }
+    };
+}
+
 impl<T: PrimitiveType> TypedBackend<T> for PrimitiveBuilder<T::Arrow>
 where
     // FIXME: Remove this bound once the Rust trait system supports adding the
@@ -43,15 +68,7 @@ where
     //        implement Into<NativeType<T>> per PrimitiveType definition)
     for<'a> T::Value<'a>: Into<NativeType<T>>,
 {
-    type Config = ();
-
-    fn new(config: BuilderConfig<T>) -> Self {
-        if let Some(capacity) = config.capacity {
-            Self::with_capacity(capacity)
-        } else {
-            Self::new()
-        }
-    }
+    typed_backend_common!(T, false);
 
     #[inline]
     fn push(&mut self, v: T::Value<'_>) {
@@ -84,15 +101,7 @@ where
     for<'a> <Option<T> as ArrayElement>::Value<'a>: Into<Option<T::Value<'a>>>,
     for<'a> <Option<T> as ArrayElement>::Slice<'a>: Into<OptionSlice<'a, T>>,
 {
-    type Config = ();
-
-    fn new(config: BuilderConfig<Option<T>>) -> Self {
-        if let Some(capacity) = config.capacity {
-            Self::with_capacity(capacity)
-        } else {
-            Self::new()
-        }
-    }
+    typed_backend_common!(Option<T>, true);
 
     #[inline]
     fn push(&mut self, v: <Option<T> as ArrayElement>::Value<'_>) {
@@ -121,10 +130,13 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{
-        builder::tests::{
-            check_extend_from_options, check_extend_from_values, check_extend_with_nulls,
-            check_init_default_optional, check_init_with_capacity_optional, check_push,
-            check_push_option, option_vec,
+        builder::{
+            tests::{
+                check_extend_from_options, check_extend_from_values, check_extend_with_nulls,
+                check_init_default_optional, check_init_with_capacity_optional, check_push,
+                check_push_option, option_vec,
+            },
+            BuilderConfig,
         },
         elements::{
             primitive::{
@@ -158,17 +170,20 @@ mod tests {
 
                     #[test]
                     fn push_value(init_capacity in length_or_capacity(), value: $primitive) {
-                        check_push::<$primitive>((), init_capacity, value)?;
+                        check_push::<$primitive>(BuilderConfig::with_capacity(init_capacity), value)?;
                     }
 
                     #[test]
                     fn push_option(init_capacity in length_or_capacity(), value: Option<$primitive>) {
-                        check_push_option::<$primitive>((), init_capacity, value)?;
+                        check_push_option::<$primitive>(BuilderConfig::with_capacity(init_capacity), value)?;
                     }
 
                     #[test]
                     fn extend_from_values(init_capacity in length_or_capacity(), values: Vec<$primitive>) {
-                        check_extend_from_values::<$primitive>(|| (), init_capacity, &values)?;
+                        check_extend_from_values::<$primitive>(
+                            || BuilderConfig::with_capacity(init_capacity),
+                            &values
+                        )?;
                     }
 
                     #[test]
@@ -176,10 +191,13 @@ mod tests {
                         init_capacity in length_or_capacity(),
                         (values, is_valid) in option_vec::<$primitive>(),
                     ) {
-                        check_extend_from_options::<$primitive>((), init_capacity, OptionSlice {
-                            values: &values,
-                            is_valid: &is_valid,
-                        })?;
+                        check_extend_from_options::<$primitive>(
+                            BuilderConfig::with_capacity(init_capacity),
+                            OptionSlice {
+                                values: &values,
+                                is_valid: &is_valid,
+                            }
+                        )?;
                     }
 
                     #[test]
@@ -187,7 +205,7 @@ mod tests {
                         init_capacity in length_or_capacity(),
                         num_nulls in length_or_capacity()
                     ) {
-                        check_extend_with_nulls::<$primitive>((), init_capacity, num_nulls)?;
+                        check_extend_with_nulls::<$primitive>(BuilderConfig::with_capacity(init_capacity), num_nulls)?;
                     }
                 }
             }
@@ -248,17 +266,20 @@ mod tests {
 
             #[test]
             fn push_value(init_capacity in length_or_capacity(), value in any_f16()) {
-                check_push::<f16>((), init_capacity, value)?;
+                check_push::<f16>(BuilderConfig::with_capacity(init_capacity), value)?;
             }
 
             #[test]
             fn push_option(init_capacity in length_or_capacity(), value in any_f16_opt()) {
-                check_push_option::<f16>((), init_capacity, value)?;
+                check_push_option::<f16>(BuilderConfig::with_capacity(init_capacity), value)?;
             }
 
             #[test]
             fn extend_from_values(init_capacity in length_or_capacity(), values in any_f16_vec()) {
-                check_extend_from_values::<f16>(|| (), init_capacity, &values)?;
+                check_extend_from_values::<f16>(
+                    || BuilderConfig::with_capacity(init_capacity),
+                    &values
+                )?;
             }
 
             #[test]
@@ -266,10 +287,13 @@ mod tests {
                 init_capacity in length_or_capacity(),
                 (values, is_valid) in option_vec_custom(any_f16),
             ) {
-                check_extend_from_options::<f16>((), init_capacity, OptionSlice {
-                    values: &values,
-                    is_valid: &is_valid,
-                })?;
+                check_extend_from_options::<f16>(
+                    BuilderConfig::with_capacity(init_capacity),
+                    OptionSlice {
+                        values: &values,
+                        is_valid: &is_valid,
+                    }
+                )?;
             }
 
             #[test]
@@ -277,7 +301,7 @@ mod tests {
                 init_capacity in length_or_capacity(),
                 num_nulls in length_or_capacity()
             ) {
-                check_extend_with_nulls::<f16>((), init_capacity, num_nulls)?;
+                check_extend_with_nulls::<f16>(BuilderConfig::with_capacity(init_capacity), num_nulls)?;
             }
         }
     }

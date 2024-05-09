@@ -1,8 +1,9 @@
 //! Strong typing layer on top of [`NullBuilder`]
 
-use super::{Backend, TypedBackend};
+use super::{Backend, NoAlternateConfig, TypedBackend};
 use crate::{builder::BuilderConfig, elements::primitive::Null};
 use arrow_array::builder::NullBuilder;
+use arrow_schema::{DataType, Field};
 
 impl Backend for NullBuilder {
     #[cfg(test)]
@@ -16,7 +17,12 @@ impl Backend for NullBuilder {
 }
 
 impl TypedBackend<Null> for NullBuilder {
-    type Config = ();
+    type ExtraConfig = ();
+    type AlternateConfig = NoAlternateConfig;
+
+    fn make_field(_config: &BuilderConfig<Null>, name: String) -> Field {
+        Field::new(name, DataType::Null, true)
+    }
 
     fn new(_config: BuilderConfig<Null>) -> Self {
         // FIXME: We do not forward the capacity to NullBuilder as it does not
@@ -66,7 +72,7 @@ mod tests {
 
         #[test]
         fn push(init_capacity in length_or_capacity()) {
-            check_push::<Null>((), init_capacity, Null)?;
+            check_push::<Null>(BuilderConfig::with_capacity(init_capacity), Null)?;
         }
 
         #[test]

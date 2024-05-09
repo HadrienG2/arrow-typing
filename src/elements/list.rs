@@ -5,45 +5,45 @@ use arrow_array::{builder::GenericListBuilder, OffsetSizeTrait};
 use arrow_schema::ArrowError;
 use std::{fmt::Debug, marker::PhantomData};
 
-/// List of elements of type T
+/// A list of elements of type `Item`
 ///
 /// Uses 32-bit signed offsets by default, which limits the sum of sublist
 /// lengths to `2^31`. Use [`LargeList`] to go over this limit.
 #[derive(Copy, Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct List<T: ArrayElement + ?Sized, OffsetSize: OffsetSizeTrait = i32>(
-    PhantomData<(T::Value<'static>, OffsetSize)>,
+pub struct List<Item: ArrayElement + ?Sized, OffsetSize: OffsetSizeTrait = i32>(
+    PhantomData<(Item::Value<'static>, OffsetSize)>,
 );
 
 /// A [`List`] with 64-bit offsets
-pub type LargeList<T> = List<T, i64>;
+pub type LargeList<Item> = List<Item, i64>;
 
 /// Columnar alternative to a slice of slices
 ///
-/// - The default configuration, with `usize` lengths, emulates `&[&[T]]`: each
+/// - The default configuration, with `usize` lengths, emulates `&[&[Item]]`: each
 ///   entry of `lengths` represents a sublist of a certain length within
 ///   `values`.
 /// - The alternate [`OptionListSlice`] configuration, with `Option<usize>`,
-///   emulates `&[Option<&[T]>]` by additionally enabling null sublists to be
+///   emulates `&[Option<&[Item]>]` by additionally enabling null sublists to be
 ///   specified using `None` entries in `lengths`.
 #[derive(Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ListSlice<'a, T: ArrayElement, Length: ListLength = usize> {
+pub struct ListSlice<'a, Item: ArrayElement, Length: ListLength = usize> {
     /// Concatenated elements from all inner lists
-    pub values: T::Slice<'a>,
+    pub values: Item::Slice<'a>,
 
     /// Length of each sublist within `values`, or `None` for null lists
     pub lengths: &'a [Length],
 }
 //
-impl<'a, T: ArrayElement, Length: ListLength> Clone for ListSlice<'a, T, Length> {
+impl<'a, Item: ArrayElement, Length: ListLength> Clone for ListSlice<'a, Item, Length> {
     fn clone(&self) -> Self {
         *self
     }
 }
 //
-impl<'a, T: ArrayElement, Length: ListLength> Copy for ListSlice<'a, T, Length> {}
+impl<'a, Item: ArrayElement, Length: ListLength> Copy for ListSlice<'a, Item, Length> {}
 //
-impl<'a, T: ArrayElement, Length: ListLength> Slice for ListSlice<'a, T, Length> {
-    type Value = Length::WrappedLikeSelf<T::Slice<'a>>;
+impl<'a, Item: ArrayElement, Length: ListLength> Slice for ListSlice<'a, Item, Length> {
+    type Value = Length::WrappedLikeSelf<Item::Slice<'a>>;
 
     fn has_consistent_lens(&self) -> bool {
         self.values.has_consistent_lens()
@@ -83,8 +83,8 @@ impl<'a, T: ArrayElement, Length: ListLength> Slice for ListSlice<'a, T, Length>
     }
 }
 
-/// Columnar alternative to `&[Option<&[T]>]`
-pub type OptionListSlice<'a, T> = ListSlice<'a, T, Option<usize>>;
+/// Columnar alternative to `&[Option<&[Item]>]`
+pub type OptionListSlice<'a, Item> = ListSlice<'a, Item, Option<usize>>;
 
 /// Type which can be used as a list length, i.e. `usize` or `Option<usize>`
 #[doc(hidden)]
@@ -133,22 +133,42 @@ impl ListLength for Option<usize> {
 
 // SAFETY: List is not a primitive type and is therefore not affected by the
 //         safety precondition of ArrayElement
-unsafe impl<T: ArrayElement, OffsetSize: OffsetSizeTrait> ArrayElement for List<T, OffsetSize> {
-    type BuilderBackend = GenericListBuilder<OffsetSize, T::BuilderBackend>;
-    type Value<'a> = T::Slice<'a>;
-    type Slice<'a> = ListSlice<'a, T>;
+unsafe impl<Item: ArrayElement, OffsetSize: OffsetSizeTrait> ArrayElement
+    for List<Item, OffsetSize>
+{
+    type BuilderBackend = GenericListBuilder<OffsetSize, Item::BuilderBackend>;
+    type Value<'a> = Item::Slice<'a>;
+    type Slice<'a> = ListSlice<'a, Item>;
     type ExtendFromSliceResult = Result<(), ArrowError>;
 }
 //
 // SAFETY: Option is not a primitive type and is therefore not affected by the
 //         safety precondition of ArrayElement
-unsafe impl<T: ArrayElement, OffsetSize: OffsetSizeTrait> ArrayElement
-    for Option<List<T, OffsetSize>>
+unsafe impl<Item: ArrayElement, OffsetSize: OffsetSizeTrait> ArrayElement
+    for Option<List<Item, OffsetSize>>
 {
-    type BuilderBackend = GenericListBuilder<OffsetSize, T::BuilderBackend>;
-    type Value<'a> = Option<T::Slice<'a>>;
-    type Slice<'a> = OptionListSlice<'a, T>;
+    type BuilderBackend = GenericListBuilder<OffsetSize, Item::BuilderBackend>;
+    type Value<'a> = Option<Item::Slice<'a>>;
+    type Slice<'a> = OptionListSlice<'a, Item>;
     type ExtendFromSliceResult = Result<(), ArrowError>;
+}
+
+/// A [`List`] of `Item`s or an [`Option`] thereof
+//
+// FIXME: Once supported, narrow down the bound to ArrayElement<BuilderBackend:
+//        TypedBackend<Self, ExtraConfig = ListConfig<Self::Item>,
+//        AlternateConfig = NoAlternateConfig>.
+pub trait ListLike: ArrayElement {
+    /// List item type
+    type Item: ArrayElement;
+}
+//
+impl<Item: ArrayElement, OffsetSize: OffsetSizeTrait> ListLike for List<Item, OffsetSize> {
+    type Item = Item;
+}
+//
+impl<Item: ArrayElement, OffsetSize: OffsetSizeTrait> ListLike for Option<List<Item, OffsetSize>> {
+    type Item = Item;
 }
 
 // TODO: Add support for fixed-size lists, whether the size is known at
