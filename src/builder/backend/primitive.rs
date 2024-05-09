@@ -3,7 +3,7 @@
 use super::{Backend, Capacity, NoAlternateConfig, TypedBackend, ValiditySlice};
 use crate::{
     builder::BuilderConfig,
-    elements::{
+    element::{
         primitive::{NativeType, PrimitiveType},
         ArrayElement, OptionSlice,
     },
@@ -138,7 +138,7 @@ mod tests {
             },
             BuilderConfig,
         },
-        elements::{
+        element::{
             primitive::{
                 Date32, Date64, Duration, IntervalDayTime, IntervalMonthDayNano, IntervalYearMonth,
                 Microsecond, Millisecond, Nanosecond, Second, Time,

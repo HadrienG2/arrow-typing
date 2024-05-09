@@ -24,7 +24,7 @@ pub mod primitive;
 // StructBuilder, then UnionBuilder, and finish with special cases.
 
 use super::BuilderConfig;
-use crate::elements::ArrayElement;
+use crate::element::ArrayElement;
 use arrow_array::builder::ArrayBuilder;
 use arrow_schema::Field;
 use std::fmt::Debug;

@@ -3,9 +3,9 @@
 pub mod list;
 pub mod primitive;
 
-use crate::{builder::backend::TypedBackend, elements::primitive::Null};
+use crate::{builder::backend::TypedBackend, element::primitive::Null};
 #[cfg(doc)]
-use crate::{builder::TypedBuilder, elements::primitive::PrimitiveType};
+use crate::{builder::TypedBuilder, element::primitive::PrimitiveType};
 #[cfg(doc)]
 use arrow_schema::ArrowError;
 use std::fmt::Debug;

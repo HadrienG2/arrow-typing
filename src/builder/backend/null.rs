@@ -1,7 +1,7 @@
 //! Strong typing layer on top of [`NullBuilder`]
 
 use super::{Backend, NoAlternateConfig, TypedBackend};
-use crate::{builder::BuilderConfig, elements::primitive::Null};
+use crate::{builder::BuilderConfig, element::primitive::Null};
 use arrow_array::builder::NullBuilder;
 use arrow_schema::{DataType, Field};
 

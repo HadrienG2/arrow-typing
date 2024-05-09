@@ -2,7 +2,7 @@
 //! arrays to be built and accessed using strongly typed Rust APIs.
 
 mod builder;
-pub mod elements;
+pub mod element;
 pub mod validity;
 
 pub use builder::*;
@@ -19,10 +19,10 @@ macro_rules! impl_option_element {
     ($t:ty) => {
         // SAFETY: Option is not a primitive type and is therefore not
         //         affected by the safety precondition of ArrayElement
-        unsafe impl $crate::elements::ArrayElement for Option<$t> {
-            type BuilderBackend = <$t as $crate::elements::ArrayElement>::BuilderBackend;
-            type Value<'a> = Option<<$t as $crate::elements::ArrayElement>::Value<'a>>;
-            type Slice<'a> = $crate::elements::OptionSlice<'a, $t>;
+        unsafe impl $crate::element::ArrayElement for Option<$t> {
+            type BuilderBackend = <$t as $crate::element::ArrayElement>::BuilderBackend;
+            type Value<'a> = Option<<$t as $crate::element::ArrayElement>::Value<'a>>;
+            type Slice<'a> = $crate::element::OptionSlice<'a, $t>;
             type ExtendFromSliceResult = Result<(), arrow_schema::ArrowError>;
         }
     };

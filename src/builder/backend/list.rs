@@ -3,7 +3,7 @@
 use super::{Backend, NoAlternateConfig, TypedBackend};
 use crate::{
     builder::BuilderConfig,
-    elements::{
+    element::{
         list::{List, ListSlice, OptionListSlice},
         ArrayElement, Slice,
     },

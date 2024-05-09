@@ -1,6 +1,6 @@
 //! Grouping array elements in sublists
 
-use crate::elements::{ArrayElement, Slice};
+use crate::element::{ArrayElement, Slice};
 use arrow_array::{builder::GenericListBuilder, OffsetSizeTrait};
 use arrow_schema::ArrowError;
 use std::{fmt::Debug, marker::PhantomData};

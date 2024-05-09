@@ -6,9 +6,9 @@ use std::fmt::{self, Debug, Formatter};
 
 use self::backend::{list::ListConfig, Backend, Capacity, NoAlternateConfig, TypedBackend};
 #[cfg(doc)]
-use crate::elements::{primitive::PrimitiveType, OptionSlice};
+use crate::element::{primitive::PrimitiveType, OptionSlice};
 use crate::{
-    elements::{list::ListLike, ArrayElement, NullableElement},
+    element::{list::ListLike, ArrayElement, NullableElement},
     validity::ValiditySlice,
 };
 use arrow_array::builder::ArrayBuilder;
@@ -122,7 +122,7 @@ impl<T: ArrayElement> TypedBuilder<T> {
     /// are passed as [`OptionSlice`]s:
     ///
     /// ```rust
-    /// # use arrow_typing::{TypedBuilder, elements::OptionSlice};
+    /// # use arrow_typing::{TypedBuilder, element::OptionSlice};
     /// let mut builder = TypedBuilder::<Option<f32>>::new();
     /// builder.extend_from_slice(OptionSlice {
     ///     values: &[
@@ -185,7 +185,7 @@ impl<T: ArrayElement> TypedBuilder<T> {
     /// type](NullableElement), i.e. `Null` or `Option<T>`.
     ///
     /// ```rust
-    /// # use arrow_typing::{TypedBuilder, elements::primitive::Null};
+    /// # use arrow_typing::{TypedBuilder, element::primitive::Null};
     /// let mut builder = TypedBuilder::<Null>::new();
     /// builder.extend_with_nulls(666);
     /// ```
@@ -241,7 +241,7 @@ where
     /// check which elements are valid.
     ///
     /// ```rust
-    /// # use arrow_typing::{TypedBuilder, elements::OptionSlice};
+    /// # use arrow_typing::{TypedBuilder, element::OptionSlice};
     /// let mut builder = TypedBuilder::<Option<f32>>::new();
     /// let validity: &[bool] = &[true, false, true];
     /// builder.extend_from_slice(OptionSlice {
@@ -376,7 +376,7 @@ where
     /// built.
     ///
     /// ```rust
-    /// # use arrow_typing::{BuilderConfig, TypedBuilder, elements::list::List};
+    /// # use arrow_typing::{BuilderConfig, TypedBuilder, element::list::List};
     /// // Configure an array of optional lists of booleans with storage for
     /// // 42 lists and a total of 666 boolean items across all lists.
     /// let item_config = BuilderConfig::with_capacity(666);
@@ -399,7 +399,7 @@ where
     /// By default, list items get the conventional field name "item".
     ///
     /// ```rust
-    /// # use arrow_typing::{BuilderConfig, elements::{list::List, primitive::Null}};
+    /// # use arrow_typing::{BuilderConfig, element::{list::List, primitive::Null}};
     /// let list_config: BuilderConfig<List<Null>> =
     ///     BuilderConfig::new().with_item_name("null_item");
     /// ```
@@ -566,7 +566,7 @@ type BackendAlternateConfig<T> = <BuilderBackend<T> as TypedBackend<T>>::Alterna
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::elements::{OptionSlice, Slice};
+    use crate::element::{OptionSlice, Slice};
     use arrow_schema::ArrowError;
     use backend::ValiditySlice;
     use proptest::{prelude::*, sample::SizeRange, test_runner::TestCaseResult};
