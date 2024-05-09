@@ -155,9 +155,10 @@ unsafe impl<Item: ArrayElement, OffsetSize: OffsetSizeTrait> ArrayElement
 
 /// A [`List`] of `Item`s or an [`Option`] thereof
 //
-// FIXME: Once supported, narrow down the bound to ArrayElement<BuilderBackend:
-//        TypedBackend<Self, ExtraConfig = ListConfig<Self::Item>,
-//        AlternateConfig = NoAlternateConfig>.
+// TODO: Once supported, narrow down the bound to ArrayElement<BuilderBackend:
+//       TypedBackend<Self, ExtraConfig = ListConfig<Self::Item>,
+//       AlternateConfig = NoAlternateConfig> + Items and simplify the bounds of
+//       TypedBuilder and BuilderConfig.
 pub trait ListLike: ArrayElement {
     /// List item type
     type Item: ArrayElement;
