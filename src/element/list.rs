@@ -172,6 +172,6 @@ impl<Item: ArrayElement, OffsetSize: OffsetSizeTrait> ListLike for Option<List<I
     type Item = Item;
 }
 
-// TODO: Add support for fixed-size lists, whether the size is known at
-//       compile-time (ConstSizedList<T, N, OffsetSize>) or at runtime
-//       (FixedSizeList<T, OffsetSize>)
+// FIXME: Add support for fixed-size lists, whether the size is known at
+//        compile-time (ConstSizedList<T, N, OffsetSize>) or at runtime
+//        (FixedSizeList<T, OffsetSize>)

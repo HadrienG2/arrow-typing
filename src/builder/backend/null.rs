@@ -1,6 +1,6 @@
 //! Strong typing layer on top of [`NullBuilder`]
 
-use super::{Backend, NoAlternateConfig, TypedBackend};
+use super::{Backend, Capacity, NoAlternateConfig, TypedBackend};
 use crate::{builder::BuilderConfig, element::primitive::Null};
 use arrow_array::builder::NullBuilder;
 use arrow_schema::{DataType, Field};
@@ -16,6 +16,12 @@ impl Backend for NullBuilder {
     }
 }
 
+impl Capacity for NullBuilder {
+    fn capacity(&self) -> usize {
+        usize::MAX
+    }
+}
+
 impl TypedBackend<Null> for NullBuilder {
     type ExtraConfig = ();
     type AlternateConfig = NoAlternateConfig;
@@ -25,9 +31,6 @@ impl TypedBackend<Null> for NullBuilder {
     }
 
     fn new(_config: BuilderConfig<Null>) -> Self {
-        // FIXME: We do not forward the capacity to NullBuilder as it does not
-        //        handle it in a manner that is consistent with other builders,
-        //        see https://github.com/apache/arrow-rs/issues/5711
         Self::new()
     }
 

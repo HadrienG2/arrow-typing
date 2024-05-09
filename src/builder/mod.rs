@@ -91,7 +91,7 @@ impl<T: ArrayElement> TypedBuilder<T> {
     /// builder.push(123);
     /// ```
     //
-    // TODO: Example with a type where T::Value is less obvious
+    // FIXME: Example with a type where T::Value is less obvious, like List
     ///
     /// For types with a complex internal structure, such element-wise insertion
     /// may be inefficient. Therefore, if you intend to insert many values, it
@@ -145,7 +145,7 @@ impl<T: ArrayElement> TypedBuilder<T> {
     /// `T::Slice` is a simple Rust slice type, but `Result<(), ArrowError>`
     /// when `T::Slice` is a composite slice type.
     //
-    // TODO: Add an example with structs?
+    // FIXME: Add an example with structs once available
     pub fn extend_from_slice(&mut self, s: T::Slice<'_>) -> T::ExtendFromSliceResult {
         self.0.extend_from_slice(s)
     }
@@ -222,8 +222,8 @@ impl<T: ArrayElement> TypedBuilder<T> {
         self.0.is_empty()
     }
 
-    // TODO: Some equivalent of ArrayBuilder::finish() and finish_cloned that
-    //       returns a TypedArrayRef
+    // FIXME: Some equivalent of ArrayBuilder::finish() and finish_cloned that
+    //        returns a TypedArrayRef
 }
 //
 impl<T> TypedBuilder<Option<T>>
@@ -346,7 +346,7 @@ where
 /// `BuilderConfig<Option<List<T, _>>>`.
 impl<List: ListLike> BuilderConfig<List>
 where
-    // FIXME: Remove bound once ListLike trait can be made more specific
+    // TODO: Remove bound once ListLike trait can be made more specific
     List::BuilderBackend: TypedBackend<
         List,
         ExtraConfig = ListConfig<List::Item>,
@@ -423,7 +423,7 @@ impl<T: ArrayElement> BuilderConfig<T> {
     /// buffers, like tuples, a lower bound on the capacity of all underlying
     /// columns is returned.
     //
-    // TODO: Example
+    // FIXME: Example once tuples available
     ///
     /// In the case of lists, capacity should be understood as the number of
     /// lists that can be pushed without reallocating _assuming enough capacity
@@ -600,7 +600,7 @@ mod tests {
         }
         prop_assert_eq!(builder.len(), 0);
         prop_assert!(builder.is_empty());
-        // TODO: Build and check final array
+        // FIXME: Build and check final array once possible
         Ok(())
     }
 
@@ -676,7 +676,7 @@ mod tests {
         }
         prop_assert_eq!(builder.len(), num_elements);
         prop_assert_eq!(builder.is_empty(), num_elements == 0);
-        // TODO: Build and check final array
+        // FIXME: Build and check final array once possible
         Ok(())
     }
 

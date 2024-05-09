@@ -5,7 +5,8 @@ pub mod list;
 pub mod null;
 pub mod primitive;
 
-// TODO: Still need to interface remaining API of PrimitiveBuilder and then...
+// FIXME: Still need to interface remaining API of GenericListBuilder and
+//        PrimitiveBuilder and then...
 //
 // - FixedSizeBinaryBuilder
 // - FixedSizeListBuilder
@@ -13,15 +14,14 @@ pub mod primitive;
 // - GenericByteDictionaryBuilder
 // - GenericByteRunBuilder
 // - GenericByteViewBuilder
-// - GenericListBuilder
 // - MapBuilder
 // - PrimitiveDictionaryBuilder
 // - PrimitiveRunBuilder
 // - StructBuilder
 // - UnionBuilder
 //
-// I should probably start with PrimitiveBuilder, then ListBuilder, then
-// StructBuilder, then UnionBuilder, and finish with special cases.
+// I should probably start with StructBuilder, then UnionBuilder, and finish
+// with special cases.
 
 use super::BuilderConfig;
 use crate::element::ArrayElement;

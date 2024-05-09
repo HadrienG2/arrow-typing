@@ -62,10 +62,10 @@ macro_rules! typed_backend_common {
 
 impl<T: PrimitiveType> TypedBackend<T> for PrimitiveBuilder<T::Arrow>
 where
-    // FIXME: Remove this bound once the Rust trait system supports adding the
-    //        appropriate bounds on PrimitiveType to let rustc figure out that
-    //        T::Value<'_> is just T for primitive types (and thus T::Value must
-    //        implement Into<NativeType<T>> per PrimitiveType definition)
+    // TODO: Remove this bound once the Rust trait system supports adding the
+    //       appropriate bounds on PrimitiveType to let rustc figure out that
+    //       T::Value<'_> is just T for primitive types (and thus T::Value must
+    //       implement Into<NativeType<T>> per PrimitiveType definition)
     for<'a> T::Value<'a>: Into<NativeType<T>>,
 {
     typed_backend_common!(T, false);
@@ -89,14 +89,14 @@ where
 
 impl<T: PrimitiveType> TypedBackend<Option<T>> for PrimitiveBuilder<T::Arrow>
 where
-    // FIXME: Remove this bound once the Rust trait system supports adding the
-    //        appropriate bounds on PrimitiveType to let rustc figure out that
-    //        T::Value<'_> is just T for primitive types (and thus T::Value must
-    //        implement Into<NativeType<T>> per PrimitiveType definition)
+    // TODO: Remove this bound once the Rust trait system supports adding the
+    //       appropriate bounds on PrimitiveType to let rustc figure out that
+    //       T::Value<'_> is just T for primitive types (and thus T::Value must
+    //       implement Into<NativeType<T>> per PrimitiveType definition)
     for<'a> T::Value<'a>: Into<NativeType<T>>,
     //
-    // FIXME: Remove these bounds once it becomes possible to blanket-impl
-    //        ArrayElement for Option<T: PrimitiveType>, making them obvious.
+    // TODO: Remove these bounds once it becomes possible to blanket-impl
+    //       ArrayElement for Option<T: PrimitiveType>, making them obvious.
     Option<T>: ArrayElement<ExtendFromSliceResult = Result<(), ArrowError>>,
     for<'a> <Option<T> as ArrayElement>::Value<'a>: Into<Option<T::Value<'a>>>,
     for<'a> <Option<T> as ArrayElement>::Slice<'a>: Into<OptionSlice<'a, T>>,
@@ -233,8 +233,9 @@ mod tests {
         u8, u16, u32, u64
     );
 
-    // FIXME: Since f16 does not implement Arbitrary yet, it cannot leverage the
-    //        above test macro and needs a custom test harness
+    // TODO: Since f16 does not implement Arbitrary yet, it cannot leverage the
+    //       above test macro and needs a custom test harness. See
+    //       https://github.com/starkat99/half-rs/issues/110 .
     mod f16 {
         use super::*;
         use crate::builder::tests::option_vec_custom;
