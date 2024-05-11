@@ -135,7 +135,7 @@ impl Slice for Bitmap<'_> {
 /// Iterator over the elements of a [`Bitmap`]
 pub type Iter<'slice> = Take<BitmapIter<'slice>>;
 
-/// Iterator over the elements of an Arrow-style bitmap
+/// Iterator over the bits of an `&[u8]`
 ///
 /// For storage efficiency reasons, Arrow bit-packs arrays of booleans into
 /// `&[u8]` slices. This iterator lets you iterate over the booleans packed

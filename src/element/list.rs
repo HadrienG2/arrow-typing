@@ -39,7 +39,7 @@ pub type LargeList<Item> = List<Item, i64>;
 ///   `&[Option<usize>]` but uses a different internal storage format that is
 ///   suitable for in-place readout from Arrow arrays. This format is used when
 ///   bulk-reading from a `TypedArray<Option<List>>`.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub struct ListSlice<Items: Slice, Lists: Sublists> {
     /// Concatenated items from all inner lists
     pub items: Items,
