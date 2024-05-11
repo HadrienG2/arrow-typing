@@ -1,9 +1,9 @@
 //! A layer on top of [`arrow`](https://docs.rs/arrow) which enables arrow
 //! arrays to be built and accessed using strongly typed Rust APIs.
 
+pub mod bitmap;
 mod builder;
 pub mod element;
-pub mod validity;
 
 pub use builder::*;
 
@@ -23,9 +23,8 @@ macro_rules! impl_option_element {
             type BuilderBackend = <$t as $crate::element::ArrayElement>::BuilderBackend;
             type WriteValue<'a> = Option<<$t as $crate::element::ArrayElement>::WriteValue<'a>>;
             type ReadValue<'a> = Option<<$t as $crate::element::ArrayElement>::ReadValue<'a>>;
-            type WriteSlice<'a> = $crate::element::OptionSlice<'a, $t, &'a [bool]>;
-            type ReadSlice<'a> =
-                $crate::element::OptionSlice<'a, $t, $crate::validity::ValiditySlice<'a>>;
+            type WriteSlice<'a> = $crate::element::OptionWriteSlice<'a, $t>;
+            type ReadSlice<'a> = $crate::element::OptionReadSlice<'a, $t>;
             type ExtendFromSliceResult = Result<(), arrow_schema::ArrowError>;
         }
     };
@@ -36,24 +35,24 @@ macro_rules! impl_option_element {
 /// This macro should be called within an impl block of the slice type with
 /// suitable generic parameters.
 ///
-/// `has_consistent_lens()` is not re-exported by default because it is not
+/// `is_consistent()` is not re-exported by default because it is not
 /// appropriate for non-composite slice types, but you can also re-export it by
-/// adding a `has_consistent_lens` argument to the macro.
+/// adding a `is_consistent` argument to the macro.
 #[doc(hidden)]
 #[macro_export]
 macro_rules! inherent_slice_methods {
     (
-        has_consistent_lens,
+        is_consistent,
         element: $element:ty
         $( , iter_lifetime: $iter_lifetime1:lifetime $(+ $iter_lifetimeN:lifetime)* )?
     ) => {
-        /// Truth that the inner subslices have a consistent length
+        /// Truth that all inner slices are consistent with each other
         ///
         /// You should check this and handle the inconsistent case before
-        /// trusting any other method of this trait.
+        /// calling any other slice method.
         #[inline]
-        pub fn has_consistent_lens(&self) -> bool {
-            <Self as $crate::element::Slice>::has_consistent_lens(self)
+        pub fn is_consistent(&self) -> bool {
+            <Self as $crate::element::Slice>::is_consistent(self)
         }
 
         $crate::inherent_slice_methods!(
@@ -65,7 +64,7 @@ macro_rules! inherent_slice_methods {
         element: $element:ty
         $( , iter_lifetime: $iter_lifetime1:lifetime $(+ $iter_lifetimeN:lifetime)* )?
     ) => {
-        /// Number of elements contained in this slice
+        /// Number of slice elements
         #[inline]
         pub fn len(&self) -> usize {
             <Self as $crate::element::Slice>::len(self)
@@ -77,25 +76,29 @@ macro_rules! inherent_slice_methods {
             <Self as $crate::element::Slice>::is_empty(self)
         }
 
-        /// Value of the `index`-th element, if in bounds
+        /// Value of the `index`-th slice element, if in bounds
         #[inline]
         pub fn get(&self, index: usize) -> Option<$element> {
             <Self as $crate::element::Slice>::get_cloned(self, index)
         }
 
-        /// Value of the `index`-th element, without bounds checking
+        /// Value of the `index`-th slice element, without bounds checking
         ///
         /// For a safe alternative see [`get`](Self::get).
         ///
         /// # Safety
         ///
-        /// `index` must be in bounds or undefined behavior will ensue.
+        /// Callers must ensure that `index < self.len()`. Additionally, if this
+        /// is a composite slice type with an `is_consistent()` method, callers
+        /// must ensure that the slice is indeed consistent before trusting the
+        /// output of `len()`.
         #[inline]
         pub unsafe fn get_unchecked(&self, index: usize) -> $element {
             unsafe { <Self as $crate::element::Slice>::get_cloned_unchecked(self, index) }
         }
 
-        /// Value of the `index`-th element, with panic-based bounds checking
+        /// Value of the `index`-th slice element, with panic-based bounds
+        /// checking
         ///
         /// # Panics
         ///
@@ -105,11 +108,11 @@ macro_rules! inherent_slice_methods {
             <Self as $crate::element::Slice>::at(self, index)
         }
 
-        /// Iterate over elements of this slice
+        /// Iterate over copies of the elements of this slice
         #[allow(clippy::needless_lifetimes)]
         pub fn iter<
-            'self_ $( : $iter_lifetime1 $( + $iter_lifetimeN )* )?
-        >(&'self_ self) -> impl Iterator<Item = $element> + 'self_ {
+            'a $( : $iter_lifetime1 $( + $iter_lifetimeN )* )?
+        >(&'a self) -> impl Iterator<Item = $element> + 'a {
             <Self as $crate::element::Slice>::iter_cloned(self)
         }
 

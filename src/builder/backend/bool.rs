@@ -1,7 +1,7 @@
 //! Strong typing layer on top of [`BooleanBuilder`]
 
 use super::{Backend, Capacity, NoAlternateConfig, TypedBackend, ValiditySlice};
-use crate::{builder::BuilderConfig, element::OptionSlice};
+use crate::{builder::BuilderConfig, element::OptionWriteSlice};
 use arrow_array::builder::BooleanBuilder;
 use arrow_schema::{ArrowError, DataType, Field};
 
@@ -76,7 +76,7 @@ impl TypedBackend<Option<bool>> for BooleanBuilder {
         self.append_option(v)
     }
 
-    fn extend_from_slice(&mut self, slice: OptionSlice<'_, bool>) -> Result<(), ArrowError> {
+    fn extend_from_slice(&mut self, slice: OptionWriteSlice<'_, bool>) -> Result<(), ArrowError> {
         self.append_values(slice.values, slice.is_valid)
     }
 }
@@ -132,7 +132,7 @@ mod tests {
             check_extend_from_options::<bool>(
                 BuilderConfig::with_capacity(init_capacity),
                 OptionSlice {
-                    values: &values,
+                    values: &values[..],
                     is_valid: &is_valid,
                 }
             )?;

@@ -8,8 +8,8 @@ use self::backend::{list::ListConfig, Backend, Capacity, NoAlternateConfig, Type
 #[cfg(doc)]
 use crate::element::{primitive::PrimitiveType, OptionSlice};
 use crate::{
+    bitmap::Bitmap,
     element::{list::ListLike, ArrayElement, NullableElement},
-    validity::ValiditySlice,
 };
 use arrow_array::builder::ArrayBuilder;
 
@@ -237,8 +237,8 @@ where
     /// [primitive types](PrimitiveType), bytes and strings.
     ///
     /// It may return `None` when all elements are known to be valid. Otherwise,
-    /// it will return a `&[bool]`-like [`ValiditySlice`] which can be used to
-    /// check which elements are valid.
+    /// it will return a `&[bool]`-like [`Bitmap`] which can be used to check
+    /// which elements are valid.
     ///
     /// ```rust
     /// # use arrow_typing::{TypedBuilder, element::OptionSlice};
@@ -258,11 +258,11 @@ where
     /// );
     /// # Ok::<_, anyhow::Error>(())
     /// ```
-    pub fn validity_slice(&self) -> Option<ValiditySlice<'_>> {
+    pub fn validity_slice(&self) -> Option<Bitmap<'_>> {
         use backend::ValiditySlice;
         self.0
             .validity_slice()
-            .map(|bitmap| crate::validity::ValiditySlice::new(bitmap, self.len()))
+            .map(|bitmap| Bitmap::new(bitmap, self.len()))
     }
 }
 //
@@ -449,17 +449,15 @@ impl<T: ArrayElement> BuilderConfig<T> {
     /// Cast between compatible configuration types
     ///
     /// Configuration types are compatible when they contain the same
-    /// information. The following configuration types are expected to be
-    /// compatible, i.e. removing the ability to convert between them would be
-    /// considered an API-breaking library change.
+    /// information. The following configuration types are compatible today and
+    /// guaranteed to remain compatible in the future:
     ///
-    /// - `BuilderConfig<Null>` and `BuilderConfig<bool>`
     /// - `BuilderConfig<T>` and `BuilderConfig<Option<T>>` for any array
     ///   element type `T` other than `Null`.
     ///
-    /// Other configuration types may be accidentally compatible at present
-    /// time, but may remain compatible in the future as new configuration
-    /// options are added. Therefore, do not rely on any configuration cast
+    /// Other configuration types may be "accidentally" compatible at present
+    /// time, but are not guaranteed to remain compatible throughout future
+    /// releases of `arrow-rs`. Therefore, do not rely on any configuration cast
     /// other than the aforementioned ones.
     ///
     /// ```rust
@@ -566,7 +564,7 @@ type BackendAlternateConfig<T> = <BuilderBackend<T> as TypedBackend<T>>::Alterna
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::element::{OptionSlice, Slice};
+    use crate::element::{OptionWriteSlice, Slice};
     use arrow_schema::ArrowError;
     use backend::ValiditySlice;
     use proptest::{prelude::*, sample::SizeRange, test_runner::TestCaseResult};
@@ -793,11 +791,11 @@ mod tests {
     /// Check `extend_from_slice` on `TypedBuilder<Option<T>>`.
     pub fn check_extend_from_options<T: ArrayElement>(
         config: BuilderConfig<Option<T>>,
-        slice: OptionSlice<T>,
+        slice: OptionWriteSlice<T>,
     ) -> TestCaseResult
     where
         Option<T>: ArrayElement<ExtendFromSliceResult = Result<(), ArrowError>>,
-        for<'a> OptionSlice<'a, T>: Into<<Option<T> as ArrayElement>::WriteSlice<'a>>,
+        for<'a> OptionWriteSlice<'a, T>: Into<<Option<T> as ArrayElement>::WriteSlice<'a>>,
         BuilderBackend<Option<T>>: ValiditySlice,
     {
         let init_capacity = config.capacity();

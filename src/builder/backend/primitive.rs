@@ -5,7 +5,7 @@ use crate::{
     builder::BuilderConfig,
     element::{
         primitive::{NativeType, PrimitiveType},
-        ArrayElement, OptionSlice,
+        ArrayElement, OptionWriteSlice,
     },
 };
 use arrow_array::{builder::PrimitiveBuilder, types::ArrowPrimitiveType};
@@ -101,7 +101,7 @@ where
     //       ArrayElement for Option<T: PrimitiveType>, making them obvious.
     Option<T>: ArrayElement<ExtendFromSliceResult = Result<(), ArrowError>>,
     for<'a> <Option<T> as ArrayElement>::WriteValue<'a>: Into<Option<T::WriteValue<'a>>>,
-    for<'a> <Option<T> as ArrayElement>::WriteSlice<'a>: Into<OptionSlice<'a, T>>,
+    for<'a> <Option<T> as ArrayElement>::WriteSlice<'a>: Into<OptionWriteSlice<'a, T>>,
 {
     typed_backend_common!(Option<T>, true);
 
@@ -116,7 +116,7 @@ where
         &mut self,
         slice: <Option<T> as ArrayElement>::WriteSlice<'_>,
     ) -> Result<(), ArrowError> {
-        let slice: OptionSlice<T> = slice.into();
+        let slice: OptionWriteSlice<T> = slice.into();
         // SAFETY: This transmute is safe for the same reason as above
         let native_values = unsafe {
             std::mem::transmute_copy::<T::WriteSlice<'_>, &[NativeType<T>]>(&slice.values)
@@ -197,7 +197,7 @@ mod tests {
                         check_extend_from_options::<$primitive>(
                             BuilderConfig::with_capacity(init_capacity),
                             OptionSlice {
-                                values: &values,
+                                values: &values[..],
                                 is_valid: &is_valid,
                             }
                         )?;
@@ -294,7 +294,7 @@ mod tests {
                 check_extend_from_options::<f16>(
                     BuilderConfig::with_capacity(init_capacity),
                     OptionSlice {
-                        values: &values,
+                        values: &values[..],
                         is_valid: &is_valid,
                     }
                 )?;

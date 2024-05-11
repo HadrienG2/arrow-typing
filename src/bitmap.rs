@@ -1,17 +1,17 @@
-//! Array validity bitmaps
-
-use std::{
-    cmp::Ordering,
-    iter::{FusedIterator, Take},
-};
+//! Arrow-style bitmaps
 
 use crate::element::Slice;
+use std::iter::{FusedIterator, Take};
 
-/// Array validity bitmap
-#[derive(Copy, Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ValiditySlice<'array> {
-    /// Validity bitmap
-    bitmap: &'array [u8],
+/// A bit-packed slice of booleans
+///
+/// This type is logically equivalent to `&[bool]`, but is implemented over a
+/// bit-packed `&[u8]` representation. It is notably used to provide in-place
+/// access to the null buffer/validity bitmap of Arrow arrays.
+#[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
+pub struct Bitmap<'array> {
+    /// Raw bitmap, possibly containing superfluous bits
+    raw: &'array [u8],
 
     /// Number of leading bits in the first byte of the bitmap that have no
     /// associated array element
@@ -28,19 +28,19 @@ pub struct ValiditySlice<'array> {
     trailer_len: u8,
 }
 //
-impl<'array> ValiditySlice<'array> {
-    /// Decode a validity slice from `arrow-rs`
+impl<'array> Bitmap<'array> {
+    /// Decode a bitmap from arrow-rs
     ///
     /// # Panics
     ///
     /// Panics if `array_len` is not in the expected `(bitmap.len() - 1) * 8..
     /// bitmap.len() * 8 range`.
-    pub(crate) fn new(bitmap: &'array [u8], array_len: usize) -> Self {
+    pub(crate) fn new(raw: &'array [u8], array_len: usize) -> Self {
         let error = "bitmap and array length don't match";
-        let trailer_len = (bitmap.len() * 8).checked_sub(array_len).expect(error);
+        let trailer_len = (raw.len() * 8).checked_sub(array_len).expect(error);
         assert!(trailer_len < 8, "{error}");
         Self {
-            bitmap,
+            raw,
             header_len: 0,
             trailer_len: trailer_len as u8,
         }
@@ -49,11 +49,11 @@ impl<'array> ValiditySlice<'array> {
     crate::inherent_slice_methods!(element: bool, iter_lifetime: 'array);
 }
 //
-impl<'slice> IntoIterator for &'slice ValiditySlice<'slice> {
+impl<'slice> IntoIterator for &'slice Bitmap<'slice> {
     type Item = bool;
     type IntoIter = Iter<'slice>;
     fn into_iter(self) -> Self::IntoIter {
-        let mut bytes = self.bitmap.iter();
+        let mut bytes = self.raw.iter();
         let current_byte = bytes.next().copied();
         (BitmapIter {
             bytes,
@@ -64,38 +64,33 @@ impl<'slice> IntoIterator for &'slice ValiditySlice<'slice> {
     }
 }
 //
-impl PartialEq<&[bool]> for ValiditySlice<'_> {
+impl PartialEq<&[bool]> for Bitmap<'_> {
     fn eq(&self, other: &&[bool]) -> bool {
         self.iter().eq(other.iter().copied())
     }
 }
 //
-impl PartialOrd<&[bool]> for ValiditySlice<'_> {
-    fn partial_cmp(&self, other: &&[bool]) -> Option<Ordering> {
-        Some(self.iter().cmp(other.iter().copied()))
-    }
-}
-//
-impl Slice for ValiditySlice<'_> {
-    type Value = bool;
+impl Slice for Bitmap<'_> {
+    type Element = bool;
 
-    fn has_consistent_lens(&self) -> bool {
+    #[inline]
+    fn is_consistent(&self) -> bool {
         true
     }
 
     #[inline]
     fn len(&self) -> usize {
-        self.bitmap.len() * 8 - (self.header_len + self.trailer_len) as usize
+        self.raw.len() * 8 - (self.header_len + self.trailer_len) as usize
     }
 
     #[inline]
     unsafe fn get_cloned_unchecked(&self, index: usize) -> bool {
         let bit = index + self.header_len as usize;
-        self.bitmap.get_unchecked(bit / 8) & (1 << (bit % 8)) != 0
+        self.raw.get_unchecked(bit / 8) & (1 << (bit % 8)) != 0
     }
 
     fn iter_cloned(&self) -> impl Iterator<Item = bool> + '_ {
-        let mut bytes = self.bitmap.iter();
+        let mut bytes = self.raw.iter();
         let current_byte = bytes.next().copied();
         (BitmapIter {
             bytes,
@@ -110,24 +105,24 @@ impl Slice for ValiditySlice<'_> {
 
         let mid_bit = mid + self.header_len as usize;
         let num_head_bytes = mid_bit.div_ceil(8);
-        let head_bitmap = &self.bitmap[..num_head_bytes];
+        let head_bitmap = &self.raw[..num_head_bytes];
         let head = Self {
-            bitmap: head_bitmap,
+            raw: head_bitmap,
             header_len: self.header_len,
             trailer_len: (head_bitmap.len() * 8 - mid_bit) as u8,
         };
         debug_assert_eq!(head.len(), mid);
 
         let first_tail_byte = mid_bit / 8;
-        let header_len = if mid_bit % 8 != 0 {
-            debug_assert_ne!(head.trailer_len, 0);
-            8 - head.trailer_len
-        } else {
+        let header_len = if mid_bit % 8 == 0 {
             debug_assert_eq!(first_tail_byte, num_head_bytes);
             0
+        } else {
+            debug_assert_ne!(head.trailer_len, 0);
+            8 - head.trailer_len
         };
         let tail = Self {
-            bitmap: &self.bitmap[first_tail_byte..],
+            raw: &self.raw[first_tail_byte..],
             header_len,
             trailer_len: self.trailer_len,
         };
@@ -137,10 +132,14 @@ impl Slice for ValiditySlice<'_> {
     }
 }
 
-/// Iterator over the elements of an array validity bitmap
+/// Iterator over the elements of a [`Bitmap`]
 pub type Iter<'slice> = Take<BitmapIter<'slice>>;
 
 /// Iterator over the elements of an Arrow-style bitmap
+///
+/// For storage efficiency reasons, Arrow bit-packs arrays of booleans into
+/// `&[u8]` slices. This iterator lets you iterate over the booleans packed
+/// inside of such a slice.
 #[derive(Clone, Debug, Default)]
 pub struct BitmapIter<'bytes> {
     /// Iterator over the bitmap's bytes
@@ -181,7 +180,7 @@ mod tests {
     use super::*;
     use proptest::prelude::*;
 
-    /// Generate validity bitmap building blocks
+    /// Generate bitmap building blocks
     fn building_blocks() -> impl Strategy<Value = (Vec<u8>, usize)> {
         prop_oneof![
             any::<Vec<bool>>().prop_map(|bits| { bits_to_bitmap(&bits) }),
@@ -189,7 +188,7 @@ mod tests {
         ]
     }
 
-    /// Convert validity bits into validity bitmap building blocks
+    /// Convert bits into bitmap building blocks
     fn bits_to_bitmap(bits: &[bool]) -> (Vec<u8>, usize) {
         let array_len = bits.len();
         let bytes = bits
@@ -207,26 +206,26 @@ mod tests {
 
     proptest! {
         #[test]
-        fn init((bitmap, array_len) in building_blocks()) {
-            let res = std::panic::catch_unwind(|| ValiditySlice::new(&bitmap, array_len));
+        fn init((raw_bitmap, array_len) in building_blocks()) {
+            let res = std::panic::catch_unwind(|| Bitmap::new(&raw_bitmap, array_len));
 
-            if bitmap.len() != array_len.div_ceil(8) {
+            if raw_bitmap.len() != array_len.div_ceil(8) {
                 prop_assert!(res.is_err());
                 return Ok(());
             }
             prop_assert!(res.is_ok());
-            let validity = res.unwrap();
+            let bitmap = res.unwrap();
 
-            prop_assert_eq!(validity.len(), array_len);
-            prop_assert_eq!(validity.is_empty(), array_len == 0);
-            prop_assert_eq!(validity.iter().count(), array_len);
-            for (idx, bit) in validity.iter().enumerate() {
-                prop_assert_eq!(bit, bitmap[idx / 8] & (1 << (idx % 8)) != 0);
+            prop_assert_eq!(bitmap.len(), array_len);
+            prop_assert_eq!(bitmap.is_empty(), array_len == 0);
+            prop_assert_eq!(bitmap.iter().count(), array_len);
+            for (idx, bit) in bitmap.iter().enumerate() {
+                prop_assert_eq!(bit, raw_bitmap[idx / 8] & (1 << (idx % 8)) != 0);
             }
         }
     }
 
-    /// Generate a validity bitmap, its unpacked bits, and an index into it
+    /// Generate a bitmap, its unpacked bits, and an index into it
     fn bitmap_bits_index() -> impl Strategy<Value = ((Vec<u8>, usize), Vec<bool>, usize)> {
         let bits = any::<Vec<bool>>();
         bits.prop_flat_map(|bits| {
@@ -238,26 +237,26 @@ mod tests {
 
     proptest! {
         #[test]
-        fn index(((bitmap, array_len), bits, index) in bitmap_bits_index()) {
+        fn index(((raw_bitmap, array_len), bits, index) in bitmap_bits_index()) {
             let in_bounds = index < bits.len();
-            let validity = ValiditySlice::new(&bitmap, array_len);
-            prop_assert_eq!(validity, &bits[..]);
+            let bitmap = Bitmap::new(&raw_bitmap, array_len);
+            prop_assert_eq!(bitmap, &bits[..]);
 
-            prop_assert_eq!(validity.get_cloned(index), bits.get(index).copied());
-            let index_res = std::panic::catch_unwind(|| validity.at(index));
+            prop_assert_eq!(bitmap.get_cloned(index), bits.get(index).copied());
+            let index_res = std::panic::catch_unwind(|| bitmap.at(index));
             prop_assert_eq!(index_res.ok(), bits.get(index).copied());
             if in_bounds {
-                prop_assert_eq!(unsafe { validity.get_cloned_unchecked(index) }, bits[index]);
+                prop_assert_eq!(unsafe { bitmap.get_cloned_unchecked(index) }, bits[index]);
             }
         }
 
         #[test]
-        fn split_at(((bitmap, array_len), bits, index) in bitmap_bits_index()) {
+        fn split_at(((raw_bitmap, array_len), bits, index) in bitmap_bits_index()) {
             let in_bounds = index <= bits.len();
-            let validity = ValiditySlice::new(&bitmap, array_len);
-            prop_assert_eq!(validity, &bits[..]);
+            let bitmap = Bitmap::new(&raw_bitmap, array_len);
+            prop_assert_eq!(bitmap, &bits[..]);
 
-            let res = std::panic::catch_unwind(|| validity.split_at(index));
+            let res = std::panic::catch_unwind(|| bitmap.split_at(index));
 
             if !in_bounds {
                 prop_assert!(res.is_err());
@@ -265,10 +264,10 @@ mod tests {
             }
 
             prop_assert!(res.is_ok());
-            let (validity_head, validity_tail) = res.unwrap();
+            let (bitmap_head, bitmap_tail) = res.unwrap();
             let (bits_head, bits_tail) = bits.split_at(index);
-            prop_assert_eq!(validity_head, bits_head);
-            prop_assert_eq!(validity_tail, bits_tail);
+            prop_assert_eq!(bitmap_head, bits_head);
+            prop_assert_eq!(bitmap_tail, bits_tail);
         }
     }
 }

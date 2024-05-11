@@ -149,7 +149,7 @@ impl<OffsetSize: OffsetSizeTrait, Item: ArrayElement> TypedBackend<List<Item, Of
     }
 
     fn extend_from_slice(&mut self, s: ListWriteSlice<'_, Item>) -> Result<(), ArrowError> {
-        if !s.has_consistent_lens() {
+        if !s.is_consistent() {
             return Err(ArrowError::InvalidArgumentError(
                 "sum of sublist lengths should equate value buffer length".to_string(),
             ));
@@ -177,7 +177,7 @@ impl<OffsetSize: OffsetSizeTrait, Item: ArrayElement> TypedBackend<Option<List<I
     }
 
     fn extend_from_slice(&mut self, s: OptionListWriteSlice<'_, Item>) -> Result<(), ArrowError> {
-        if !s.has_consistent_lens() {
+        if !s.is_consistent() {
             return Err(ArrowError::InvalidArgumentError(
                 "sum of sublist lengths should equate value buffer length".to_string(),
             ));

@@ -31,9 +31,10 @@ unsafe impl ArrayElement for Null {
 }
 //
 impl Slice for usize {
-    type Value = Null;
+    type Element = Null;
 
-    fn has_consistent_lens(&self) -> bool {
+    #[inline]
+    fn is_consistent(&self) -> bool {
         true
     }
 
@@ -43,11 +44,11 @@ impl Slice for usize {
     }
 
     #[inline]
-    unsafe fn get_cloned_unchecked(&self, _index: usize) -> Self::Value {
+    unsafe fn get_cloned_unchecked(&self, _index: usize) -> Self::Element {
         Null
     }
 
-    fn iter_cloned(&self) -> impl Iterator<Item = Self::Value> + '_ {
+    fn iter_cloned(&self) -> impl Iterator<Item = Self::Element> + '_ {
         std::iter::repeat(Null).take(*self)
     }
 
