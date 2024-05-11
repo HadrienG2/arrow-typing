@@ -241,7 +241,7 @@ impl<Values: Slice, Validity: Slice<Element = bool>> Slice for OptionSlice<Value
 
     #[inline]
     unsafe fn get_cloned_unchecked(&self, index: usize) -> Self::Element {
-        debug_assert!(self.is_consistent());
+        debug_assert!(self.is_consistent() && index < self.len());
         unsafe {
             self.is_valid
                 .get_cloned_unchecked(index)
@@ -278,7 +278,7 @@ impl<Values: Slice, Validity: Slice<Element = bool>> Slice for OptionSlice<Value
 ///
 /// Uses a [`WriteSlice`](ArrayElement::WriteSlice) of `T` for bulk-insertion of
 /// values of type `T`, and a simple `&[bool]` to tell whether each element of
-/// the data slice is valid or not.
+/// the data slice is valid/null or not.
 pub type OptionWriteSlice<'a, T> = OptionSlice<<T as ArrayElement>::WriteSlice<'a>, &'a [bool]>;
 //
 /// OptionSlice layout used when reading from an `Array<Option<T>>`
