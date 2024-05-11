@@ -64,25 +64,26 @@ impl<T: PrimitiveType> TypedBackend<T> for PrimitiveBuilder<T::Arrow>
 where
     // TODO: Remove this bound once the Rust trait system supports adding the
     //       appropriate bounds on PrimitiveType to let rustc figure out that
-    //       T::Value<'_> is just T for primitive types (and thus T::Value must
-    //       implement Into<NativeType<T>> per PrimitiveType definition)
-    for<'a> T::Value<'a>: Into<NativeType<T>>,
+    //       T::WriteValue<'_> is just T for primitive types (and thus
+    //       T::WriteValue must implement Into<NativeType<T>> per PrimitiveType
+    //       definition)
+    for<'a> T::WriteValue<'a>: Into<NativeType<T>>,
 {
     typed_backend_common!(T, false);
 
     #[inline]
-    fn push(&mut self, v: T::Value<'_>) {
+    fn push(&mut self, v: T::WriteValue<'_>) {
         self.append_value(v.into())
     }
 
-    fn extend_from_slice(&mut self, s: T::Slice<'_>) {
+    fn extend_from_slice(&mut self, s: T::WriteSlice<'_>) {
         // SAFETY: This transmute is safe because...
-        //         - T::Slice is &[T] for all primitive types
+        //         - T::WriteSlice is &[T] for all primitive types
         //         - Primitive types are repr(transparent) wrappers over the
         //           corresponding Arrow native types, so it is safe to
         //           transmute &[T] into &[NativeType<T>].
         let native_slice =
-            unsafe { std::mem::transmute_copy::<T::Slice<'_>, &[NativeType<T>]>(&s) };
+            unsafe { std::mem::transmute_copy::<T::WriteSlice<'_>, &[NativeType<T>]>(&s) };
         self.append_slice(native_slice)
     }
 }
@@ -91,33 +92,35 @@ impl<T: PrimitiveType> TypedBackend<Option<T>> for PrimitiveBuilder<T::Arrow>
 where
     // TODO: Remove this bound once the Rust trait system supports adding the
     //       appropriate bounds on PrimitiveType to let rustc figure out that
-    //       T::Value<'_> is just T for primitive types (and thus T::Value must
-    //       implement Into<NativeType<T>> per PrimitiveType definition)
-    for<'a> T::Value<'a>: Into<NativeType<T>>,
+    //       T::WriteValue<'_> is just T for primitive types (and thus
+    //       T::WriteValue must implement Into<NativeType<T>> per PrimitiveType
+    //       definition)
+    for<'a> T::WriteValue<'a>: Into<NativeType<T>>,
     //
     // TODO: Remove these bounds once it becomes possible to blanket-impl
     //       ArrayElement for Option<T: PrimitiveType>, making them obvious.
     Option<T>: ArrayElement<ExtendFromSliceResult = Result<(), ArrowError>>,
-    for<'a> <Option<T> as ArrayElement>::Value<'a>: Into<Option<T::Value<'a>>>,
-    for<'a> <Option<T> as ArrayElement>::Slice<'a>: Into<OptionSlice<'a, T>>,
+    for<'a> <Option<T> as ArrayElement>::WriteValue<'a>: Into<Option<T::WriteValue<'a>>>,
+    for<'a> <Option<T> as ArrayElement>::WriteSlice<'a>: Into<OptionSlice<'a, T>>,
 {
     typed_backend_common!(Option<T>, true);
 
     #[inline]
-    fn push(&mut self, v: <Option<T> as ArrayElement>::Value<'_>) {
-        let opt: Option<T::Value<'_>> = v.into();
+    fn push(&mut self, v: <Option<T> as ArrayElement>::WriteValue<'_>) {
+        let opt: Option<T::WriteValue<'_>> = v.into();
         let opt: Option<NativeType<T>> = opt.map(Into::into);
         self.append_option(opt)
     }
 
     fn extend_from_slice(
         &mut self,
-        slice: <Option<T> as ArrayElement>::Slice<'_>,
+        slice: <Option<T> as ArrayElement>::WriteSlice<'_>,
     ) -> Result<(), ArrowError> {
         let slice: OptionSlice<T> = slice.into();
         // SAFETY: This transmute is safe for the same reason as above
-        let native_values =
-            unsafe { std::mem::transmute_copy::<T::Slice<'_>, &[NativeType<T>]>(&slice.values) };
+        let native_values = unsafe {
+            std::mem::transmute_copy::<T::WriteSlice<'_>, &[NativeType<T>]>(&slice.values)
+        };
         let res = std::panic::catch_unwind(AssertUnwindSafe(|| {
             self.append_values(native_values, slice.is_valid)
         }));

@@ -4,7 +4,7 @@ use super::{Backend, NoAlternateConfig, TypedBackend};
 use crate::{
     builder::BuilderConfig,
     element::{
-        list::{List, ListSlice, OptionListSlice},
+        list::{List, ListWriteSlice, OptionListWriteSlice},
         ArrayElement, Slice,
     },
 };
@@ -143,12 +143,12 @@ impl<OffsetSize: OffsetSizeTrait, Item: ArrayElement> TypedBackend<List<Item, Of
     typed_backend_common!(List<Item, OffsetSize>, false);
 
     #[inline]
-    fn push(&mut self, s: Item::Slice<'_>) {
+    fn push(&mut self, s: Item::WriteSlice<'_>) {
         self.values().extend_from_slice(s);
         self.append(true)
     }
 
-    fn extend_from_slice(&mut self, s: ListSlice<'_, Item>) -> Result<(), ArrowError> {
+    fn extend_from_slice(&mut self, s: ListWriteSlice<'_, Item>) -> Result<(), ArrowError> {
         if !s.has_consistent_lens() {
             return Err(ArrowError::InvalidArgumentError(
                 "sum of sublist lengths should equate value buffer length".to_string(),
@@ -167,7 +167,7 @@ impl<OffsetSize: OffsetSizeTrait, Item: ArrayElement> TypedBackend<Option<List<I
     typed_backend_common!(Option<List<Item, OffsetSize>>, true);
 
     #[inline]
-    fn push(&mut self, s: Option<Item::Slice<'_>>) {
+    fn push(&mut self, s: Option<Item::WriteSlice<'_>>) {
         if let Some(slice) = s {
             self.values().extend_from_slice(slice);
             self.append(true)
@@ -176,7 +176,7 @@ impl<OffsetSize: OffsetSizeTrait, Item: ArrayElement> TypedBackend<Option<List<I
         }
     }
 
-    fn extend_from_slice(&mut self, s: OptionListSlice<'_, Item>) -> Result<(), ArrowError> {
+    fn extend_from_slice(&mut self, s: OptionListWriteSlice<'_, Item>) -> Result<(), ArrowError> {
         if !s.has_consistent_lens() {
             return Err(ArrowError::InvalidArgumentError(
                 "sum of sublist lengths should equate value buffer length".to_string(),

@@ -5,15 +5,26 @@ use std::{
     iter::{FusedIterator, Take},
 };
 
+use crate::element::Slice;
+
 /// Array validity bitmap
 #[derive(Copy, Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ValiditySlice<'array> {
     /// Validity bitmap
     bitmap: &'array [u8],
 
-    /// Number of trailing bits that have no associated array element
+    /// Number of leading bits in the first byte of the bitmap that have no
+    /// associated array element
     ///
-    /// Guaranteed to be in `0..=7`, will be 0 when `bitmap` is empty.
+    /// Guaranteed to be in `0..=7`, will be equal to `8 - trailer_len` when the
+    /// bitmap is empty.
+    header_len: u8,
+
+    /// Number of trailing bits in the last byte of the bitmap that have no
+    /// associated array element
+    ///
+    /// Guaranteed to be in `0..=7`, will be equal to `8 - header_len` when the
+    /// bitmap is empty.
     trailer_len: u8,
 }
 //
@@ -30,66 +41,26 @@ impl<'array> ValiditySlice<'array> {
         assert!(trailer_len < 8, "{error}");
         Self {
             bitmap,
+            header_len: 0,
             trailer_len: trailer_len as u8,
         }
     }
 
-    /// Number of elements in the validity bitmap
-    pub const fn len(&self) -> usize {
-        self.bitmap.len() * 8 - self.trailer_len as usize
-    }
-
-    /// Returns `true` if the source array contains no element.
-    pub const fn is_empty(&self) -> bool {
-        self.bitmap.is_empty()
-    }
-
-    /// Value of the `index`-th validity bit, if in bounds
-    #[inline]
-    pub fn get(&self, index: usize) -> Option<bool> {
-        (index < self.len()).then(|| unsafe { self.get_unchecked(index) })
-    }
-
-    /// Value of the `index`-th validity bit, without bounds checking
-    ///
-    /// For a safe alternative see [`get`](Self::get).
-    ///
-    /// # Safety
-    ///
-    /// `index` must be in bounds or undefined behavior will ensue.
-    #[inline]
-    pub unsafe fn get_unchecked(&self, index: usize) -> bool {
-        self.bitmap.get_unchecked(index / 8) & (1 << (index % 8)) != 0
-    }
-
-    /// Value of the `index`-th, with panic-based bounds checking
-    ///
-    /// # Panics
-    ///
-    /// Panics if `index` is out of bounds.
-    #[inline]
-    pub fn at(&self, index: usize) -> bool {
-        self.get(index).expect("index is out of bounds")
-    }
-
-    /// Iterate over the slice
-    pub fn iter(&self) -> Iter<'_> {
-        let mut bytes = self.bitmap.iter();
-        let current_byte = bytes.next().copied();
-        (BitmapIter {
-            bytes,
-            current_byte,
-            bit: 1,
-        })
-        .take(self.len())
-    }
+    crate::inherent_slice_methods!(element: bool, iter_lifetime: 'array);
 }
 //
 impl<'slice> IntoIterator for &'slice ValiditySlice<'slice> {
     type Item = bool;
     type IntoIter = Iter<'slice>;
     fn into_iter(self) -> Self::IntoIter {
-        self.iter()
+        let mut bytes = self.bitmap.iter();
+        let current_byte = bytes.next().copied();
+        (BitmapIter {
+            bytes,
+            current_byte,
+            bit: 1 << self.header_len,
+        })
+        .take(self.len())
     }
 }
 //
@@ -102,6 +73,67 @@ impl PartialEq<&[bool]> for ValiditySlice<'_> {
 impl PartialOrd<&[bool]> for ValiditySlice<'_> {
     fn partial_cmp(&self, other: &&[bool]) -> Option<Ordering> {
         Some(self.iter().cmp(other.iter().copied()))
+    }
+}
+//
+impl Slice for ValiditySlice<'_> {
+    type Value = bool;
+
+    fn has_consistent_lens(&self) -> bool {
+        true
+    }
+
+    #[inline]
+    fn len(&self) -> usize {
+        self.bitmap.len() * 8 - (self.header_len + self.trailer_len) as usize
+    }
+
+    #[inline]
+    unsafe fn get_cloned_unchecked(&self, index: usize) -> bool {
+        let bit = index + self.header_len as usize;
+        self.bitmap.get_unchecked(bit / 8) & (1 << (bit % 8)) != 0
+    }
+
+    fn iter_cloned(&self) -> impl Iterator<Item = bool> + '_ {
+        let mut bytes = self.bitmap.iter();
+        let current_byte = bytes.next().copied();
+        (BitmapIter {
+            bytes,
+            current_byte,
+            bit: 1 << self.header_len,
+        })
+        .take(self.len())
+    }
+
+    fn split_at(&self, mid: usize) -> (Self, Self) {
+        assert!(mid <= self.len(), "split point is out of bounds");
+
+        let mid_bit = mid + self.header_len as usize;
+        let num_head_bytes = mid_bit.div_ceil(8);
+        let head_bitmap = &self.bitmap[..num_head_bytes];
+        let head = Self {
+            bitmap: head_bitmap,
+            header_len: self.header_len,
+            trailer_len: (head_bitmap.len() * 8 - mid_bit) as u8,
+        };
+        debug_assert_eq!(head.len(), mid);
+
+        let first_tail_byte = mid_bit / 8;
+        let header_len = if mid_bit % 8 != 0 {
+            debug_assert_ne!(head.trailer_len, 0);
+            8 - head.trailer_len
+        } else {
+            debug_assert_eq!(first_tail_byte, num_head_bytes);
+            0
+        };
+        let tail = Self {
+            bitmap: &self.bitmap[first_tail_byte..],
+            header_len,
+            trailer_len: self.trailer_len,
+        };
+        debug_assert_eq!(tail.len(), self.len() - mid);
+
+        (head, tail)
     }
 }
 
@@ -209,15 +241,34 @@ mod tests {
         fn index(((bitmap, array_len), bits, index) in bitmap_bits_index()) {
             let in_bounds = index < bits.len();
             let validity = ValiditySlice::new(&bitmap, array_len);
-
             prop_assert_eq!(validity, &bits[..]);
 
-            prop_assert_eq!(validity.get(index), bits.get(index).copied());
+            prop_assert_eq!(validity.get_cloned(index), bits.get(index).copied());
             let index_res = std::panic::catch_unwind(|| validity.at(index));
             prop_assert_eq!(index_res.ok(), bits.get(index).copied());
             if in_bounds {
-                prop_assert_eq!(unsafe { validity.get_unchecked(index) }, bits[index]);
+                prop_assert_eq!(unsafe { validity.get_cloned_unchecked(index) }, bits[index]);
             }
+        }
+
+        #[test]
+        fn split_at(((bitmap, array_len), bits, index) in bitmap_bits_index()) {
+            let in_bounds = index <= bits.len();
+            let validity = ValiditySlice::new(&bitmap, array_len);
+            prop_assert_eq!(validity, &bits[..]);
+
+            let res = std::panic::catch_unwind(|| validity.split_at(index));
+
+            if !in_bounds {
+                prop_assert!(res.is_err());
+                return Ok(());
+            }
+
+            prop_assert!(res.is_ok());
+            let (validity_head, validity_tail) = res.unwrap();
+            let (bits_head, bits_tail) = bits.split_at(index);
+            prop_assert_eq!(validity_head, bits_head);
+            prop_assert_eq!(validity_tail, bits_tail);
         }
     }
 }

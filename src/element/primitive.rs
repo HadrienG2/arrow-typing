@@ -21,10 +21,12 @@ pub struct Null;
 //         ArrayElement's safety contract.
 unsafe impl ArrayElement for Null {
     type BuilderBackend = NullBuilder;
-    type Value<'a> = Self;
+    type ReadValue<'a> = Self;
+    type WriteValue<'a> = Self;
     /// The only information that a slice of null contains is the number of
     /// nulls in it, so we make it literally a count of nulls
-    type Slice<'a> = usize;
+    type ReadSlice<'a> = usize;
+    type WriteSlice<'a> = usize;
     type ExtendFromSliceResult = ();
 }
 //
@@ -35,8 +37,14 @@ impl Slice for usize {
         true
     }
 
+    #[inline]
     fn len(&self) -> usize {
         *self
+    }
+
+    #[inline]
+    unsafe fn get_cloned_unchecked(&self, _index: usize) -> Self::Value {
+        Null
     }
 
     fn iter_cloned(&self) -> impl Iterator<Item = Self::Value> + '_ {
@@ -53,8 +61,10 @@ impl Slice for usize {
 //         ArrayElement's safety contract.
 unsafe impl ArrayElement for bool {
     type BuilderBackend = BooleanBuilder;
-    type Value<'a> = Self;
-    type Slice<'a> = &'a [Self];
+    type WriteValue<'a> = Self;
+    type ReadValue<'a> = Self;
+    type WriteSlice<'a> = &'a [Self];
+    type ReadSlice<'a> = &'a [Self];
     type ExtendFromSliceResult = ();
 }
 impl_option_element!(bool);
@@ -487,9 +497,10 @@ impl TimeUnit for Nanosecond {
 /// The type for which this trait is implemented must be a `repr(transparent)`
 /// wrapper over the underlying `ArrowPrimitiveType::NativeType`.
 pub unsafe trait PrimitiveType:
-    // TODO: Once Rust's trait solver supports it, use an ArrayElement<Value<'_>
-    //       = Self, Slice<'_> = &[Self]> bound to simplify downstream usage and
-    //       remove the unsafe contract of ArrayElement.
+    // TODO: Once Rust's trait solver supports it, use an
+    //       ArrayElement<XyzValue<'_> = Self, XyzSlice<'_> = &[Self]> bound to
+    //       simplify downstream usage and remove the unsafe contract of
+    //       ArrayElement.
     ArrayElement<BuilderBackend = PrimitiveBuilder<Self::Arrow>, ExtendFromSliceResult = ()> + Debug + From<NativeType<Self>> + Into<NativeType<Self>>
 {
     /// Equivalent Arrow primitive type
@@ -508,13 +519,17 @@ macro_rules! unsafe_impl_primitive_type {
             unsafe impl PrimitiveType for $local {
                 type Arrow = $arrow;
             }
+
             // SAFETY: By construction, it is enforced that Slice is &[Self]
             unsafe impl ArrayElement for $local {
                 type BuilderBackend = PrimitiveBuilder<ArrowType<$local>>;
-                type Value<'a> = Self;
-                type Slice<'a> = &'a [Self];
+                type WriteValue<'a> = Self;
+                type ReadValue<'a> = Self;
+                type WriteSlice<'a> = &'a [Self];
+                type ReadSlice<'a> = &'a [Self];
                 type ExtendFromSliceResult = ();
             }
+
             impl_option_element!($local);
         )*
     };

@@ -98,7 +98,7 @@ impl<T: ArrayElement> TypedBuilder<T> {
     /// is advised that you do not do so by calling this method in a loop, but
     /// instead look into the bulk insertion methods below.
     #[inline]
-    pub fn push(&mut self, value: T::Value<'_>) {
+    pub fn push(&mut self, value: T::WriteValue<'_>) {
         self.0.push(value)
     }
 
@@ -146,7 +146,7 @@ impl<T: ArrayElement> TypedBuilder<T> {
     /// when `T::Slice` is a composite slice type.
     //
     // FIXME: Add an example with structs once available
-    pub fn extend_from_slice(&mut self, s: T::Slice<'_>) -> T::ExtendFromSliceResult {
+    pub fn extend_from_slice(&mut self, s: T::WriteSlice<'_>) -> T::ExtendFromSliceResult {
         self.0.extend_from_slice(s)
     }
 }
@@ -173,7 +173,7 @@ where
     ///     10.12,
     /// ]);
     /// ```
-    pub fn extend_from_value_slice(&mut self, vs: T::Slice<'_>) -> T::ExtendFromSliceResult {
+    pub fn extend_from_value_slice(&mut self, vs: T::WriteSlice<'_>) -> T::ExtendFromSliceResult {
         self.0.extend_from_slice(vs)
     }
 }
@@ -275,8 +275,8 @@ where
     }
 }
 //
-impl<'a, T: ArrayElement> Extend<T::Value<'a>> for TypedBuilder<T> {
-    fn extend<I: IntoIterator<Item = T::Value<'a>>>(&mut self, iter: I) {
+impl<'a, T: ArrayElement> Extend<T::WriteValue<'a>> for TypedBuilder<T> {
+    fn extend<I: IntoIterator<Item = T::WriteValue<'a>>>(&mut self, iter: I) {
         for item in iter {
             self.push(item)
         }
@@ -683,7 +683,7 @@ mod tests {
     /// Check outcome of pushing a value into a newly created TypedBuilder
     pub fn check_push<T: ArrayElement>(
         config: BuilderConfig<T>,
-        value: T::Value<'_>,
+        value: T::WriteValue<'_>,
     ) -> TestCaseResult {
         let init_capacity = config.capacity();
         let mut builder = TypedBuilder::<T>::with_config(config);
@@ -700,7 +700,7 @@ mod tests {
     where
         Option<T>: ArrayElement,
         BuilderBackend<Option<T>>: ValiditySlice,
-        for<'a> Option<T>: Into<<Option<T> as ArrayElement>::Value<'a>>,
+        for<'a> Option<T>: Into<<Option<T> as ArrayElement>::WriteValue<'a>>,
     {
         let init_capacity = config.capacity();
         let mut builder = TypedBuilder::<Option<T>>::with_config(config);
@@ -715,7 +715,7 @@ mod tests {
     /// values
     pub fn check_extend_from_values<T: ArrayElement>(
         make_config: impl Fn() -> BuilderConfig<T>,
-        values: T::Slice<'_>,
+        values: T::WriteSlice<'_>,
     ) -> TestCaseResult
     where
         Option<T>: ArrayElement<BuilderBackend = BuilderBackend<T>>,
@@ -725,7 +725,7 @@ mod tests {
             AlternateConfig = BackendAlternateConfig<T>,
         >,
         BuilderBackend<Option<T>>: ValiditySlice,
-        for<'a> T::Value<'a>: Clone + Into<<Option<T> as ArrayElement>::Value<'a>>,
+        for<'a> T::WriteValue<'a>: Clone + Into<<Option<T> as ArrayElement>::WriteValue<'a>>,
     {
         let init_capacity = make_config().capacity();
         let make_value_builder = || TypedBuilder::<T>::with_config(make_config());
@@ -797,7 +797,7 @@ mod tests {
     ) -> TestCaseResult
     where
         Option<T>: ArrayElement<ExtendFromSliceResult = Result<(), ArrowError>>,
-        for<'a> OptionSlice<'a, T>: Into<<Option<T> as ArrayElement>::Slice<'a>>,
+        for<'a> OptionSlice<'a, T>: Into<<Option<T> as ArrayElement>::WriteSlice<'a>>,
         BuilderBackend<Option<T>>: ValiditySlice,
     {
         let init_capacity = config.capacity();

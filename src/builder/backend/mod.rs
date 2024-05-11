@@ -45,12 +45,11 @@ pub trait TypedBackend<T: ArrayElement>: Backend {
 
     /// Append a single element into the builder
     ///
-    /// Implementors should almost always make this operation `#[inline]` to
-    /// allow for cross-crate inlining.
-    fn push(&mut self, v: T::Value<'_>);
+    /// Implementations of this method should usually be `#[inline]`.
+    fn push(&mut self, v: T::WriteValue<'_>);
 
     /// Append values into the builder in bulk
-    fn extend_from_slice(&mut self, s: T::Slice<'_>) -> T::ExtendFromSliceResult;
+    fn extend_from_slice(&mut self, s: T::WriteSlice<'_>) -> T::ExtendFromSliceResult;
 }
 
 /// Best-effort buffer builder capacity query
