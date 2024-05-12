@@ -76,6 +76,18 @@ macro_rules! inherent_slice_methods {
             <Self as $crate::element::Slice>::is_empty(self)
         }
 
+        /// Value of the first element of the slice, or `None` if the slice is empty
+        #[inline]
+        pub fn first(&self) -> Option<$element> {
+            <Self as $crate::element::Slice>::first_cloned(self)
+        }
+
+        /// Value of the last element of the slice, or `None` if it is empty
+        #[inline]
+        pub fn last(&self) -> Option<$element> {
+            <Self as $crate::element::Slice>::last_cloned(self)
+        }
+
         /// Value of the `index`-th slice element, if in bounds
         #[inline]
         pub fn get(&self, index: usize) -> Option<$element> {

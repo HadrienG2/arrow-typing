@@ -121,6 +121,22 @@ pub trait Slice: Copy + Clone + Debug + Sized {
         self.len() == 0
     }
 
+    /// Value of the first element of the slice, or `None` if the slice is empty
+    #[inline]
+    fn first_cloned(&self) -> Option<Self::Element> {
+        debug_assert!(self.is_consistent());
+        self.get_cloned(0)
+    }
+
+    /// Value of the last element of the slice, or `None` if it is empty
+    #[inline]
+    fn last_cloned(&self) -> Option<Self::Element> {
+        debug_assert!(self.is_consistent());
+        self.len()
+            .checked_sub(1)
+            .and_then(|last_idx| self.get_cloned(last_idx))
+    }
+
     /// Value of the `index`-th slice element, if in bounds
     #[inline]
     fn get_cloned(&self, index: usize) -> Option<Self::Element> {

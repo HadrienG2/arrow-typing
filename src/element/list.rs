@@ -8,6 +8,8 @@ use arrow_array::{builder::GenericListBuilder, OffsetSizeTrait};
 use arrow_schema::ArrowError;
 use std::{fmt::Debug, marker::PhantomData};
 
+use super::OptionSlice;
+
 /// A list of elements of type `Item`
 ///
 /// Uses 32-bit signed offsets by default, which limits the sum of sublist
@@ -32,15 +34,15 @@ pub type LargeList<Item> = List<Item, i64>;
 /// - With `&[Option<usize>]`, each entry represents either the length of a
 ///   valid sublist, or `None` to denote a null sublist. This format is used
 ///   when bulk-writing into a `TypedBuilder<Option<List>>`.
-/// - [`OffsetLengths`] is an opaque type that behaves like `&[usize]`, but uses
-///   a storage layout that is suitable for in-place readout from Arrow arrays.
-///   This format is used when bulk-reading from a `TypedArray<List>`.
-/// - [`OptionOffsetLengths`] is another opaque type that behaves like
+/// - [`OffsetSublists`] is an opaque type that behaves like `&[usize]`, but
+///   uses a storage layout that is suitable for in-place readout from Arrow
+///   arrays. This format is used when bulk-reading from a `TypedArray<List>`.
+/// - [`OptionOffsetSublists`] is another opaque type that behaves like
 ///   `&[Option<usize>]` but uses a different internal storage format that is
 ///   suitable for in-place readout from Arrow arrays. This format is used when
 ///   bulk-reading from a `TypedArray<Option<List>>`.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub struct ListSlice<Items: Slice, Lists: Sublists> {
+pub struct ListSlice<Items: Slice, Lists: SublistSlice> {
     /// Concatenated items from all inner lists
     pub items: Items,
 
@@ -48,11 +50,11 @@ pub struct ListSlice<Items: Slice, Lists: Sublists> {
     pub lists: Lists,
 }
 //
-impl<Items: Slice, Lists: Sublists> ListSlice<Items, Lists> {
+impl<Items: Slice, Lists: SublistSlice> ListSlice<Items, Lists> {
     crate::inherent_slice_methods!(is_consistent, element: ListSliceElement<Items, Lists>);
 }
 //
-impl<Items: Slice, Lists: Sublists> Slice for ListSlice<Items, Lists> {
+impl<Items: Slice, Lists: SublistSlice> Slice for ListSlice<Items, Lists> {
     type Element = ListSliceElement<Items, Lists>;
 
     #[inline]
@@ -62,9 +64,8 @@ impl<Items: Slice, Lists: Sublists> Slice for ListSlice<Items, Lists> {
             && self.items.len()
                 == self
                     .lists
-                    .iter_lengths()
-                    .map(|len| len.as_len())
-                    .sum::<usize>()
+                    .last_sublist()
+                    .map_or(0, |sublist| sublist.offset() + sublist.len())
     }
 
     #[inline]
@@ -76,27 +77,29 @@ impl<Items: Slice, Lists: Sublists> Slice for ListSlice<Items, Lists> {
     #[inline]
     unsafe fn get_cloned_unchecked(&self, index: usize) -> Self::Element {
         debug_assert!(self.is_consistent() && index < self.len());
-        unsafe { self.iter_cloned().nth(index).unwrap_unchecked() }
+        unsafe {
+            let sublist = self.lists.get_sublist_unchecked(index);
+            let (_before, start) = self.items.split_at(sublist.offset());
+            let (list, _after) = start.split_at(sublist.len());
+            sublist.apply_validity(list)
+        }
     }
 
     fn iter_cloned(&self) -> impl Iterator<Item = Self::Element> + '_ {
         debug_assert!(self.is_consistent());
         let mut remaining = self.items;
-        self.lists.iter_lengths().map(move |len| {
-            let (current, next) = remaining.split_at(len.as_len());
+        self.lists.iter_sublists().map(move |sublist| {
+            let (current, next) = remaining.split_at(sublist.len());
             remaining = next;
-            len.wrap_like_self(current)
+            sublist.apply_validity(current)
         })
     }
 
     fn split_at(&self, mid: usize) -> (Self, Self) {
         debug_assert!(self.is_consistent());
+        let mid_offset = self.lists.sublist_at(mid).offset();
         let (left_lists, right_lists) = self.lists.split_at(mid);
-        let left_items_len = left_lists
-            .iter_lengths()
-            .map(|len| len.as_len())
-            .sum::<usize>();
-        let (left_items, right_items) = self.items.split_at(left_items_len);
+        let (left_items, right_items) = self.items.split_at(mid_offset);
         (
             Self {
                 items: left_items,
@@ -110,255 +113,398 @@ impl<Items: Slice, Lists: Sublists> Slice for ListSlice<Items, Lists> {
     }
 }
 //
-/// Sublist type returned by the slice API of ListSlice
+/// Sublist type returned by the slice API of [`ListSlice`]
 ///
-/// Will be an `Items` sub-slice for slices of `List` and an `Option<Items>`
-/// sub-slice for slices of `Option<List>`.
+/// Will be a sub-slice of `items` for slices of [`List`] and an `Option<Items>`
+/// optional sub-slice of items for slices of `Option<List>`.
 pub type ListSliceElement<Items, Lists> =
-    <<Lists as Sublists>::Length as ListLength>::WrappedLikeSelf<Items>;
+    <<Lists as SublistSlice>::Sublist as Sublist>::ApplyValidity<Items>;
 
-/// Slice type that can model a list of sublists
-///
-/// This trait is likely to be replaced with a `Slice<Value: ListLength>` bound
-/// once rustc supports such bounds. It is therefore not part of the public API.
-//
-// TODO: Replace members with Slice<Value: ListLength> bound when supported
+/// Slice type that can describe the layout of sub-lists within a [`ListSlice`]
 #[doc(hidden)]
-pub trait Sublists: Slice {
-    /// Length of a sublist
-    type Length: ListLength;
-
-    /// Iterate over the lengths of inner sublists
-    fn iter_lengths(&self) -> impl Iterator<Item = Self::Length>;
-}
-
-/// Type which can be used to count a list length and possibly specify a null
-/// list, i.e. `usize` or `Option<usize>`
-#[doc(hidden)]
-pub trait ListLength: Copy + Clone + Debug {
-    /// Return type of `wrap_like_self`, see that for more info
-    type WrappedLikeSelf<T: Clone + Debug>: Clone + Debug;
-
-    /// Wrap the input value in the same layers of optionality as `self`
+pub trait SublistSlice: Slice {
+    /// Type of sublist
     ///
-    /// - If `Self` is not an `Option`, returns `value` as-is
-    /// - If `self` is `Some(len)`, returns `Some(value)`
-    /// - If `self` is `None`, returns `None`
-    fn wrap_like_self<T: Clone + Debug>(&self, value: T) -> Self::WrappedLikeSelf<T>;
+    /// This will be [`ValidSublist`] for slices of `List` and [`OptionSublist`]
+    /// for slices of `Option<List>`.
+    type Sublist: Sublist;
 
-    /// Interpret `self` as a sublist length, treating null sublists (sublists
-    /// of optional length `None`) as sublists of length 0.
-    fn as_len(&self) -> usize;
+    /// Get the last sublist in this slice, if any
+    fn last_sublist(&self) -> Option<Self::Sublist>;
+
+    /// Get the N-th sublist, without bounds checking
+    ///
+    /// Implementations of this method should be marked `#[inline]`.
+    ///
+    /// # Safety
+    ///
+    /// Caller must ensure that `self.is_consistent()` and `index < self.len()`.
+    unsafe fn get_sublist_unchecked(&self, index: usize) -> Self::Sublist;
+
+    /// Get the N-th sublist, with panic-based bounds checking
+    ///
+    /// # Panics
+    ///
+    /// Panics if `index` is out of bounds.
+    #[inline]
+    fn sublist_at(&self, index: usize) -> Self::Sublist {
+        assert!(self.is_consistent() && index < self.len());
+        unsafe { self.get_sublist_unchecked(index) }
+    }
+
+    /// Iterate over the sublists
+    fn iter_sublists(&self) -> impl Iterator<Item = Self::Sublist>;
+}
+
+/// Sublist within [`ListSlice::items`]
+#[doc(hidden)]
+pub trait Sublist: Copy + Clone + Debug {
+    /// Position of the first item within `ListSlice::items`
+    ///
+    /// Implementations of this method should be marked `#[inline]`.
+    fn offset(&self) -> usize;
+
+    /// Length of the sublist in items
+    ///
+    /// Implementations of this method should be marked `#[inline]`.
+    fn len(&self) -> usize;
+
+    /// Truth that this sublist is empty
+    #[inline]
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Return type of `apply_validity`, see that function for more info
+    type ApplyValidity<T: Clone + Debug>: Clone + Debug;
+
+    /// Wrap `value` in the same layers of optionality as `self`
+    ///
+    /// - If `Self` is always valid, returns `value` as-is
+    /// - If `Self` is optionally valid and `self` is valid, returns
+    ///   `Some(value)`
+    /// - If `Self` is optionally valid and `self` is invalid, returns `None`
+    ///
+    /// Implementations of this method should be marked `#[inline]`.
+    fn apply_validity<T: Clone + Debug>(&self, value: T) -> Self::ApplyValidity<T>;
+}
+
+/// Sublist which is always valid
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+#[doc(hidden)]
+pub struct ValidSublist {
+    offset: usize,
+    len: usize,
 }
 //
-impl ListLength for usize {
-    type WrappedLikeSelf<T: Clone + Debug> = T;
+impl Sublist for ValidSublist {
+    #[inline]
+    fn offset(&self) -> usize {
+        self.offset
+    }
 
     #[inline]
-    fn wrap_like_self<T: Clone + Debug>(&self, value: T) -> T {
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    type ApplyValidity<T: Clone + Debug> = T;
+    #[inline]
+    fn apply_validity<T: Clone + Debug>(&self, value: T) -> T {
         value
     }
+}
 
-    #[inline]
-    fn as_len(&self) -> usize {
-        *self
+/// Sublist which may or may not be valid
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+#[doc(hidden)]
+pub struct OptionSublist {
+    sublist: ValidSublist,
+    is_valid: bool,
+}
+//
+impl OptionSublist {
+    /// Construct from an offset and an optional length
+    fn from_option_len(offset: usize, len: Option<usize>) -> Self {
+        Self {
+            sublist: ValidSublist {
+                offset,
+                len: len.unwrap_or(0),
+            },
+            is_valid: len.is_some(),
+        }
     }
 }
 //
-impl ListLength for Option<usize> {
-    type WrappedLikeSelf<T: Clone + Debug> = Option<T>;
-
-    fn wrap_like_self<T: Clone + Debug>(&self, value: T) -> Option<T> {
-        self.map(|_| value)
+impl Sublist for OptionSublist {
+    #[inline]
+    fn offset(&self) -> usize {
+        self.sublist.offset
     }
 
     #[inline]
-    fn as_len(&self) -> usize {
-        self.unwrap_or(0)
+    fn len(&self) -> usize {
+        self.sublist.len
+    }
+
+    type ApplyValidity<T: Clone + Debug> = Option<T>;
+    #[inline]
+    fn apply_validity<T: Clone + Debug>(&self, value: T) -> Option<T> {
+        self.is_valid.then_some(value)
     }
 }
 
 /// Slice format used to write lists of lists into an Arrow builder
 pub type ListWriteSlice<'a, Item> = ListSlice<<Item as ArrayElement>::WriteSlice<'a>, &'a [usize]>;
 //
+impl SublistSlice for &[usize] {
+    type Sublist = ValidSublist;
+
+    fn last_sublist(&self) -> Option<ValidSublist> {
+        let (&len, previous_lens) = self.split_last()?;
+        let offset = previous_lens.iter().sum::<usize>();
+        Some(ValidSublist { offset, len })
+    }
+
+    #[inline]
+    unsafe fn get_sublist_unchecked(&self, index: usize) -> ValidSublist {
+        unsafe {
+            let previous_lens = self.get_unchecked(..index);
+            let offset = previous_lens.iter().sum::<usize>();
+            let len = *self.get_unchecked(index);
+            ValidSublist { offset, len }
+        }
+    }
+
+    fn iter_sublists(&self) -> impl Iterator<Item = ValidSublist> {
+        let mut offset = 0;
+        self.iter().map(move |&len| {
+            let result = ValidSublist { offset, len };
+            offset += len;
+            result
+        })
+    }
+}
+
 /// Slice format used to write lists of optional lists into an Arrow builder
 pub type OptionListWriteSlice<'a, Item> =
     ListSlice<<Item as ArrayElement>::WriteSlice<'a>, &'a [Option<usize>]>;
 //
-impl Sublists for &[usize] {
-    type Length = usize;
-    fn iter_lengths(&self) -> impl Iterator<Item = usize> {
-        self.iter_cloned()
+impl SublistSlice for &[Option<usize>] {
+    type Sublist = OptionSublist;
+
+    fn last_sublist(&self) -> Option<Self::Sublist> {
+        let (&len, previous_lens) = self.split_last()?;
+        let offset = previous_lens
+            .iter()
+            .fold(0, |acc, len| acc + len.unwrap_or(0));
+        Some(OptionSublist::from_option_len(offset, len))
     }
-}
-//
-impl Sublists for &[Option<usize>] {
-    type Length = Option<usize>;
-    fn iter_lengths(&self) -> impl Iterator<Item = Option<usize>> {
-        self.iter_cloned()
+
+    #[inline]
+    unsafe fn get_sublist_unchecked(&self, index: usize) -> OptionSublist {
+        debug_assert!(index < self.len());
+        unsafe {
+            let previous_lens = self.get_unchecked(..index);
+            let offset = previous_lens
+                .iter()
+                .fold(0, |acc, len| acc + len.unwrap_or(0));
+            let len = *self.get_unchecked(index);
+            OptionSublist::from_option_len(offset, len)
+        }
+    }
+
+    fn iter_sublists(&self) -> impl Iterator<Item = OptionSublist> {
+        let mut offset = 0;
+        self.iter().map(move |&len| {
+            let result = OptionSublist::from_option_len(offset, len);
+            offset += len.unwrap_or(0);
+            result
+        })
     }
 }
 
 /// Slice format used to access lists of lists from Arrow storage
 pub type ListReadSlice<'a, Item, OffsetSize = i32> =
-    ListSlice<<Item as ArrayElement>::ReadSlice<'a>, OffsetLengths<'a, OffsetSize>>;
+    ListSlice<<Item as ArrayElement>::ReadSlice<'a>, OffsetSublists<'a, OffsetSize>>;
 //
-/// Like `ListReadSlice`, but inner sublists use 64-bit offsets
+/// Like [`ListReadSlice`], but inner sublists use 64-bit offsets
 pub type LargeListReadSlice<'a, Item> = ListReadSlice<'a, Item, i64>;
 //
-/// Sublist lengths in native Arrow storage format
+/// Slice of non-optional sublists in the native offset-based Arrow format
 #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
-pub struct OffsetLengths<'a, OffsetSize: OffsetSizeTrait> {
-    /// Start of each sublist
-    offsets: &'a [OffsetSize],
+pub struct OffsetSublists<'a, OffsetSize: OffsetSizeTrait> {
+    /// Start of each sublist within the **original** [`ListSlice`], before any
+    /// splitting occurred
+    ///
+    /// Arrow's offset-based sublist representation has the major benefit of
+    /// enabling O(1) random access to any given sublist, but this comes at the
+    /// cost of making slice splitting less intuitive.
+    ///
+    /// More specifically, the i-th offset within the current
+    /// [`ListSlice::items`] slice is `original_offsets[i] -
+    /// original_offsets[0]`, and not `original_offsets[i]` as you might expect.
+    original_offsets: &'a [OffsetSize],
 
-    /// Total number of elements across all sublists
+    /// Total number of items
     total_len: usize,
 }
 //
-impl<OffsetSize: OffsetSizeTrait> Slice for OffsetLengths<'_, OffsetSize> {
-    type Element = usize;
+impl<OffsetSize: OffsetSizeTrait> OffsetSublists<'_, OffsetSize> {
+    /// Corrective factor to be applied to each offset in original_offset
+    fn offset_shift(&self) -> usize {
+        self.original_offsets
+            .first()
+            .map_or(0, |offset| offset.as_usize())
+    }
+}
+//
+#[doc(hidden)]
+impl<OffsetSize: OffsetSizeTrait> Slice for OffsetSublists<'_, OffsetSize> {
+    type Element = ValidSublist;
 
     #[inline]
     fn is_consistent(&self) -> bool {
-        if let Some(last) = self.offsets.last() {
-            last.as_usize() <= self.total_len
-        } else {
-            self.total_len == 0
+        // If there are no lists, there should be no items.
+        let Some((first_offset, other_offsets)) = self.original_offsets.split_first() else {
+            return self.total_len == 0;
+        };
+
+        // Offsets should be sorted in increasing order
+        let mut last_offset = first_offset;
+        for offset in other_offsets {
+            if offset < last_offset {
+                return false;
+            }
+            last_offset = offset;
         }
+
+        // Offsets should not overflow the items list
+        (*last_offset - *first_offset).as_usize() <= self.total_len
     }
 
     #[inline]
     fn len(&self) -> usize {
         debug_assert!(self.is_consistent());
-        self.offsets.len()
+        self.original_offsets.len()
     }
 
     #[inline]
-    unsafe fn get_cloned_unchecked(&self, index: usize) -> usize {
+    unsafe fn get_cloned_unchecked(&self, index: usize) -> ValidSublist {
         debug_assert!(self.is_consistent() && index < self.len());
         unsafe {
-            let next_start = if index == self.offsets.len() - 1 {
-                self.total_len
+            let offset_shift = self.original_offsets.get_unchecked(0).as_usize();
+            let original_offset = self.original_offsets.get_unchecked(index).as_usize();
+            let relative_offset = original_offset - offset_shift;
+            let next_idx = index + 1;
+            let len = if next_idx < self.original_offsets.len() {
+                self.original_offsets.get_unchecked(next_idx).as_usize() - original_offset
             } else {
-                self.offsets.get_unchecked(index + 1).as_usize()
+                self.total_len - relative_offset
             };
-            next_start
-                .checked_sub(self.offsets.get_unchecked(index).as_usize())
-                .expect("list offsets should be sorted in increasing order")
+            ValidSublist {
+                offset: relative_offset,
+                len,
+            }
         }
     }
 
-    #[inline]
-    fn iter_cloned(&self) -> impl Iterator<Item = Self::Element> + '_ {
-        (self.offsets.windows(2))
-            .map(|win| win[1].as_usize() - win[0].as_usize())
-            .chain(
-                self.offsets
-                    .last()
-                    .map(|last_offset| self.total_len - last_offset.as_usize()),
-            )
+    fn iter_cloned(&self) -> impl Iterator<Item = ValidSublist> + '_ {
+        debug_assert!(self.is_consistent());
+        let offset_shift = self.offset_shift();
+        (self.original_offsets.windows(2))
+            .map(move |win| ValidSublist {
+                offset: win[0].as_usize() - offset_shift,
+                len: (win[1] - win[0]).as_usize(),
+            })
+            .chain(self.original_offsets.last().map(move |last_offset| {
+                let offset = last_offset.as_usize() - offset_shift;
+                ValidSublist {
+                    offset,
+                    len: self.total_len - offset,
+                }
+            }))
     }
 
     fn split_at(&self, mid: usize) -> (Self, Self) {
-        let (left_starts, right_starts) = self.offsets.split_at(mid);
-        let (left_len, right_len) = if let Some(right_offset) = right_starts.first() {
-            (
-                right_offset.as_usize(),
-                self.total_len - right_offset.as_usize(),
-            )
-        } else {
-            (self.total_len, 0)
-        };
+        debug_assert!(self.is_consistent());
+        let (left_offsets, right_offsets) = self.original_offsets.split_at(mid);
+        let (left_len, right_len) =
+            right_offsets
+                .first()
+                .map_or((self.total_len, 0), |right_offset| {
+                    let relative_offset = right_offset.as_usize() - self.offset_shift();
+                    (relative_offset, self.total_len - relative_offset)
+                });
         (
             Self {
-                offsets: left_starts,
+                original_offsets: left_offsets,
                 total_len: left_len,
             },
             Self {
-                offsets: right_starts,
+                original_offsets: right_offsets,
                 total_len: right_len,
             },
         )
     }
 }
 //
-impl<OffsetSize: OffsetSizeTrait> Sublists for OffsetLengths<'_, OffsetSize> {
-    type Length = usize;
-    fn iter_lengths(&self) -> impl Iterator<Item = usize> {
+impl<OffsetSize: OffsetSizeTrait> SublistSlice for OffsetSublists<'_, OffsetSize> {
+    type Sublist = ValidSublist;
+
+    #[inline]
+    fn last_sublist(&self) -> Option<ValidSublist> {
+        self.last_cloned()
+    }
+
+    #[inline]
+    unsafe fn get_sublist_unchecked(&self, index: usize) -> ValidSublist {
+        self.get_cloned_unchecked(index)
+    }
+
+    #[inline]
+    fn iter_sublists(&self) -> impl Iterator<Item = ValidSublist> {
         self.iter_cloned()
     }
 }
 
 /// Slice format used to access lists of optional lists from Arrow storage
 pub type OptionListReadSlice<'a, Item, OffsetSize = i32> =
-    ListSlice<<Item as ArrayElement>::ReadSlice<'a>, OptionOffsetLengths<'a, OffsetSize>>;
-//OffsetSize: OffsetSizeTrait
-/// Like `OptionListReadSlice`, but inner sublists use 64-bit offsets
+    ListSlice<<Item as ArrayElement>::ReadSlice<'a>, OptionOffsetSublists<'a, OffsetSize>>;
+//
+/// Like [`OptionListReadSlice`], but inner sublists use 64-bit offsets
 pub type OptionLargeListReadSlice<'a, Item> = OptionListReadSlice<'a, Item, i64>;
 //
-/// Slice of lists in native arrow format (null buffer + offset buffer)
-#[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
-pub struct OptionOffsetLengths<'a, OffsetSize: OffsetSizeTrait> {
-    /// Null buffer
-    is_valid: Bitmap<'a>,
-
-    /// Offset-based sublist lengths
-    offset_lengths: OffsetLengths<'a, OffsetSize>,
-}
+/// Slice of optional sublists in the native offset-based Arrow format
+pub type OptionOffsetSublists<'a, OffsetSize> =
+    OptionSlice<OffsetSublists<'a, OffsetSize>, Bitmap<'a>>;
 //
-impl<OffsetSize: OffsetSizeTrait> Slice for OptionOffsetLengths<'_, OffsetSize> {
-    type Element = Option<usize>;
+impl<OffsetSize: OffsetSizeTrait> SublistSlice for OptionOffsetSublists<'_, OffsetSize> {
+    type Sublist = OptionSublist;
 
-    #[inline]
-    fn is_consistent(&self) -> bool {
-        self.offset_lengths.is_consistent() && self.is_valid.len() == self.offset_lengths.len()
-    }
-
-    #[inline]
-    fn len(&self) -> usize {
+    fn last_sublist(&self) -> Option<Self::Sublist> {
         debug_assert!(self.is_consistent());
-        self.offset_lengths.len()
+        let sublist = self.values.last_sublist()?;
+        let is_valid = self.is_valid.last()?;
+        Some(OptionSublist { sublist, is_valid })
     }
 
     #[inline]
-    unsafe fn get_cloned_unchecked(&self, index: usize) -> Option<usize> {
+    unsafe fn get_sublist_unchecked(&self, index: usize) -> OptionSublist {
         debug_assert!(self.is_consistent() && index < self.len());
         unsafe {
-            self.is_valid
-                .get_cloned_unchecked(index)
-                .then_some(self.offset_lengths.get_cloned_unchecked(index))
+            let sublist = self.values.get_sublist_unchecked(index);
+            let is_valid = self.is_valid.get_cloned_unchecked(index);
+            OptionSublist { sublist, is_valid }
         }
     }
 
-    fn iter_cloned(&self) -> impl Iterator<Item = Option<usize>> + '_ {
+    fn iter_sublists(&self) -> impl Iterator<Item = OptionSublist> {
         debug_assert!(self.is_consistent());
-        (self.is_valid.iter())
-            .zip(self.offset_lengths.iter_lengths())
-            .map(|(valid, length)| valid.then_some(length))
-    }
-
-    fn split_at(&self, index: usize) -> (Self, Self) {
-        debug_assert!(self.is_consistent());
-        let (left_validity, right_validity) = self.is_valid.split_at(index);
-        let (left_offsets, right_offsets) = self.offset_lengths.split_at(index);
-        (
-            Self {
-                is_valid: left_validity,
-                offset_lengths: left_offsets,
-            },
-            Self {
-                is_valid: right_validity,
-                offset_lengths: right_offsets,
-            },
-        )
-    }
-}
-//
-impl<OffsetSize: OffsetSizeTrait> Sublists for OptionOffsetLengths<'_, OffsetSize> {
-    type Length = Option<usize>;
-    fn iter_lengths(&self) -> impl Iterator<Item = Self::Length> {
-        self.iter_cloned()
+        self.values
+            .iter_sublists()
+            .zip(self.is_valid.iter_cloned())
+            .map(|(sublist, is_valid)| OptionSublist { sublist, is_valid })
     }
 }
 

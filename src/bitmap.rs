@@ -55,7 +55,7 @@ impl<'slice> IntoIterator for &'slice Bitmap<'slice> {
     fn into_iter(self) -> Self::IntoIter {
         let mut bytes = self.raw.iter();
         let current_byte = bytes.next().copied();
-        (BitmapIter {
+        (Bits {
             bytes,
             current_byte,
             bit: 1 << self.header_len,
@@ -92,7 +92,7 @@ impl Slice for Bitmap<'_> {
     fn iter_cloned(&self) -> impl Iterator<Item = bool> + '_ {
         let mut bytes = self.raw.iter();
         let current_byte = bytes.next().copied();
-        (BitmapIter {
+        (Bits {
             bytes,
             current_byte,
             bit: 1 << self.header_len,
@@ -133,7 +133,7 @@ impl Slice for Bitmap<'_> {
 }
 
 /// Iterator over the elements of a [`Bitmap`]
-pub type Iter<'slice> = Take<BitmapIter<'slice>>;
+pub type Iter<'slice> = Take<Bits<'slice>>;
 
 /// Iterator over the bits of an `&[u8]`
 ///
@@ -141,7 +141,7 @@ pub type Iter<'slice> = Take<BitmapIter<'slice>>;
 /// `&[u8]` slices. This iterator lets you iterate over the booleans packed
 /// inside of such a slice.
 #[derive(Clone, Debug, Default)]
-pub struct BitmapIter<'bytes> {
+pub struct Bits<'bytes> {
     /// Iterator over the bitmap's bytes
     bytes: std::slice::Iter<'bytes, u8>,
 
@@ -152,9 +152,9 @@ pub struct BitmapIter<'bytes> {
     bit: u8,
 }
 //
-impl FusedIterator for BitmapIter<'_> {}
+impl FusedIterator for Bits<'_> {}
 //
-impl<'bytes> Iterator for BitmapIter<'bytes> {
+impl<'bytes> Iterator for Bits<'bytes> {
     type Item = bool;
 
     #[inline]
