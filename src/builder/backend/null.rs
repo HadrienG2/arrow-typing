@@ -1,7 +1,10 @@
 //! Strong typing layer on top of [`NullBuilder`]
 
 use super::{Backend, Capacity, NoAlternateConfig, TypedBackend};
-use crate::{builder::BuilderConfig, element::primitive::Null};
+use crate::{
+    builder::BuilderConfig,
+    element::primitive::{Null, UniformSlice},
+};
 use arrow_array::builder::NullBuilder;
 use arrow_schema::{DataType, Field};
 
@@ -39,8 +42,8 @@ impl TypedBackend<Null> for NullBuilder {
         self.append_null()
     }
 
-    fn extend_from_slice(&mut self, n: usize) {
-        self.append_nulls(n)
+    fn extend_from_slice(&mut self, s: UniformSlice<Null>) {
+        self.append_nulls(s.len())
     }
 }
 
@@ -86,7 +89,7 @@ mod tests {
             let make_builder = || TypedBuilder::<Null>::with_capacity(init_capacity);
             {
                 let mut builder = make_builder();
-                builder.extend_from_slice(num_nulls);
+                builder.extend_from_slice(UniformSlice::new(Null, num_nulls));
                 check_extend_outcome(&builder, init_capacity, num_nulls)?;
             }{
                 let mut builder = make_builder();

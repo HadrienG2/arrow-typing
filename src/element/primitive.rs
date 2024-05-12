@@ -23,15 +23,36 @@ unsafe impl ArrayElement for Null {
     type BuilderBackend = NullBuilder;
     type ReadValue<'a> = Self;
     type WriteValue<'a> = Self;
-    /// The only information that a slice of null contains is the number of
-    /// nulls in it, so we make it literally a count of nulls
-    type ReadSlice<'a> = usize;
-    type WriteSlice<'a> = usize;
+    type ReadSlice<'a> = UniformSlice<Null>;
+    type WriteSlice<'a> = UniformSlice<Null>;
     type ExtendFromSliceResult = ();
 }
 //
-impl Slice for usize {
-    type Element = Null;
+/// A pseudo-slice whose elements are all equal to the same run-time constant
+//
+// TODO: Once Rust gets some version of the adt_const_params nightly feature,
+//       create a `ConstSlice<T, const ELEMENT: T>(usize)` that allows the
+//       element to be specified at compile time and use that for Null's slices.
+#[derive(Copy, Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct UniformSlice<T: Copy> {
+    /// Common value of each element of the slice
+    element: T,
+
+    /// Number of elements "contained" by the slice
+    len: usize,
+}
+//
+impl<T: Copy + Debug> UniformSlice<T> {
+    /// Set up a uniform slice with `len` elements, all equal to `element`
+    pub fn new(element: T, len: usize) -> Self {
+        Self { element, len }
+    }
+
+    crate::inherent_slice_methods!(element: T);
+}
+//
+impl<T: Copy + Debug> Slice for UniformSlice<T> {
+    type Element = T;
 
     #[inline]
     fn is_consistent(&self) -> bool {
@@ -40,21 +61,30 @@ impl Slice for usize {
 
     #[inline]
     fn len(&self) -> usize {
-        *self
+        self.len
     }
 
     #[inline]
-    unsafe fn get_cloned_unchecked(&self, _index: usize) -> Self::Element {
-        Null
+    unsafe fn get_cloned_unchecked(&self, _index: usize) -> T {
+        self.element
     }
 
     fn iter_cloned(&self) -> impl Iterator<Item = Self::Element> + '_ {
-        std::iter::repeat(Null).take(*self)
+        std::iter::repeat(self.element).take(self.len)
     }
 
-    fn split_at(&self, index: usize) -> (Self, Self) {
-        assert!(index <= *self, "split point is above total null count");
-        (index, self - index)
+    fn split_at(&self, mid: usize) -> (Self, Self) {
+        assert!(mid <= self.len, "split point is above total element count");
+        (
+            Self {
+                element: self.element,
+                len: mid,
+            },
+            Self {
+                element: self.element,
+                len: self.len - mid,
+            },
+        )
     }
 }
 
