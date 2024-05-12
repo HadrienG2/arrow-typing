@@ -34,7 +34,7 @@ unsafe impl ArrayElement for Null {
 //       create a `ConstSlice<T, const ELEMENT: T>(usize)` that allows the
 //       element to be specified at compile time and use that for Null's slices.
 #[derive(Copy, Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct UniformSlice<T: Copy> {
+pub struct UniformSlice<T: Copy + Debug> {
     /// Common value of each element of the slice
     element: T,
 

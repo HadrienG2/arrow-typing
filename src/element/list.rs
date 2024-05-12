@@ -20,10 +20,10 @@ pub struct List<Item: ArrayElement + ?Sized, OffsetSize: OffsetSizeTrait = i32>(
 /// A [`List`] with 64-bit offsets
 pub type LargeList<Item> = List<Item, i64>;
 
-/// A slice of lists (generalized and optimized version of `&[&[T]]`)
+/// A columnar slice of lists
 ///
-/// `values` is the concatenated list of all inner items, and `lists` specifies
-/// how `values` is split into sublists. As a compromise between ergonomics and
+/// `values` is the concatenation of all inner lists, and `lists` specifies how
+/// `values` is split into sublists. As a compromise between ergonomics and
 /// efficiency, several types of `Lists` are supported.
 ///
 /// - If `Lists` is `&[usize]`, each entry represents the length of a sublist
@@ -51,13 +51,6 @@ pub struct ListSlice<Items: Slice, Lists: Sublists> {
 impl<Items: Slice, Lists: Sublists> ListSlice<Items, Lists> {
     crate::inherent_slice_methods!(is_consistent, element: ListSliceElement<Items, Lists>);
 }
-//
-/// Sublist type returned by the slice API of ListSlice
-///
-/// Will be an `Items` sub-slice for slices of `List` and an `Option<Items>`
-/// sub-slice for slices of `Option<List>`.
-pub type ListSliceElement<Items, Lists> =
-    <<Lists as Sublists>::Length as ListLength>::WrappedLikeSelf<Items>;
 //
 impl<Items: Slice, Lists: Sublists> Slice for ListSlice<Items, Lists> {
     type Element = ListSliceElement<Items, Lists>;
@@ -116,11 +109,18 @@ impl<Items: Slice, Lists: Sublists> Slice for ListSlice<Items, Lists> {
         )
     }
 }
+//
+/// Sublist type returned by the slice API of ListSlice
+///
+/// Will be an `Items` sub-slice for slices of `List` and an `Option<Items>`
+/// sub-slice for slices of `Option<List>`.
+pub type ListSliceElement<Items, Lists> =
+    <<Lists as Sublists>::Length as ListLength>::WrappedLikeSelf<Items>;
 
 /// Slice type that can model a list of sublists
 ///
-/// This trait is destined to be replaced with a `Slice<Value: ListLength>`
-/// bound once rustc supports them. It is therefore not part of the public API.
+/// This trait is likely to be replaced with a `Slice<Value: ListLength>` bound
+/// once rustc supports such bounds. It is therefore not part of the public API.
 //
 // TODO: Replace members with Slice<Value: ListLength> bound when supported
 #[doc(hidden)]
