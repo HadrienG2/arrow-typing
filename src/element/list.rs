@@ -6,9 +6,9 @@ use crate::{
 };
 use arrow_array::{builder::GenericListBuilder, OffsetSizeTrait};
 use arrow_schema::ArrowError;
-use std::{fmt::Debug, marker::PhantomData};
+use std::{fmt::Debug, hash::Hash, marker::PhantomData};
 
-use super::OptionSlice;
+use super::{OptionSlice, Value};
 
 /// A list of elements of type `Item`
 ///
@@ -41,7 +41,7 @@ pub type LargeList<Item> = List<Item, i64>;
 ///   `&[Option<usize>]` but uses a different internal storage format that is
 ///   suitable for in-place readout from Arrow arrays. This format is used when
 ///   bulk-reading from a `TypedArray<Option<List>>`.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Hash)]
 pub struct ListSlice<Items: Slice, Lists: SublistSlice> {
     /// Concatenated items from all inner lists
     pub items: Items,
@@ -52,6 +52,40 @@ pub struct ListSlice<Items: Slice, Lists: SublistSlice> {
 //
 impl<Items: Slice, Lists: SublistSlice> ListSlice<Items, Lists> {
     crate::inherent_slice_methods!(is_consistent, element: ListSliceElement<Items, Lists>);
+}
+//
+impl<Items: Slice, Lists: SublistSlice> Eq for ListSlice<Items, Lists> where
+    ListSliceElement<Items, Lists>: Eq
+{
+}
+//
+impl<Items: Slice, Lists: SublistSlice> Ord for ListSlice<Items, Lists>
+where
+    ListSliceElement<Items, Lists>: Ord,
+{
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.iter().cmp(other.iter())
+    }
+}
+//
+impl<Items: Slice, Lists: SublistSlice, OtherSlice: Slice> PartialEq<OtherSlice>
+    for ListSlice<Items, Lists>
+where
+    ListSliceElement<Items, Lists>: PartialEq<OtherSlice::Element>,
+{
+    fn eq(&self, other: &OtherSlice) -> bool {
+        self.iter().eq(other.iter_cloned())
+    }
+}
+//
+impl<Items: Slice, Lists: SublistSlice, OtherSlice: Slice> PartialOrd<OtherSlice>
+    for ListSlice<Items, Lists>
+where
+    ListSliceElement<Items, Lists>: PartialOrd<OtherSlice::Element>,
+{
+    fn partial_cmp(&self, other: &OtherSlice) -> Option<std::cmp::Ordering> {
+        self.iter().partial_cmp(other.iter_cloned())
+    }
 }
 //
 impl<Items: Slice, Lists: SublistSlice> Slice for ListSlice<Items, Lists> {
@@ -158,7 +192,7 @@ pub trait SublistSlice: Slice {
 
 /// Sublist within [`ListSlice::items`]
 #[doc(hidden)]
-pub trait Sublist: Copy + Clone + Debug {
+pub trait Sublist: Value + Eq + Hash + PartialEq + PartialOrd {
     /// Position of the first item within `ListSlice::items`
     ///
     /// Implementations of this method should be marked `#[inline]`.
@@ -176,7 +210,7 @@ pub trait Sublist: Copy + Clone + Debug {
     }
 
     /// Return type of `apply_validity`, see that function for more info
-    type ApplyValidity<T: Clone + Debug>: Clone + Debug;
+    type ApplyValidity<T: Value>: Value;
 
     /// Wrap `value` in the same layers of optionality as `self`
     ///
@@ -186,11 +220,11 @@ pub trait Sublist: Copy + Clone + Debug {
     /// - If `Self` is optionally valid and `self` is invalid, returns `None`
     ///
     /// Implementations of this method should be marked `#[inline]`.
-    fn apply_validity<T: Clone + Debug>(&self, value: T) -> Self::ApplyValidity<T>;
+    fn apply_validity<T: Value>(&self, value: T) -> Self::ApplyValidity<T>;
 }
 
 /// Sublist which is always valid
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[doc(hidden)]
 pub struct ValidSublist {
     offset: usize,
@@ -208,15 +242,15 @@ impl Sublist for ValidSublist {
         self.len
     }
 
-    type ApplyValidity<T: Clone + Debug> = T;
+    type ApplyValidity<T: Value> = T;
     #[inline]
-    fn apply_validity<T: Clone + Debug>(&self, value: T) -> T {
+    fn apply_validity<T: Value>(&self, value: T) -> T {
         value
     }
 }
 
 /// Sublist which may or may not be valid
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[doc(hidden)]
 pub struct OptionSublist {
     sublist: ValidSublist,
@@ -247,9 +281,9 @@ impl Sublist for OptionSublist {
         self.sublist.len
     }
 
-    type ApplyValidity<T: Clone + Debug> = Option<T>;
+    type ApplyValidity<T: Value> = Option<T>;
     #[inline]
-    fn apply_validity<T: Clone + Debug>(&self, value: T) -> Option<T> {
+    fn apply_validity<T: Value>(&self, value: T) -> Option<T> {
         self.is_valid.then_some(value)
     }
 }

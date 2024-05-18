@@ -30,7 +30,7 @@ pub unsafe trait ArrayElement: Debug + Sized {
     ///
     /// For example, lists whose items are of a primitive type are best read and
     /// written as slices `&[T]`.
-    type WriteValue<'a>: Clone + Debug + Sized;
+    type WriteValue<'a>: Value;
 
     /// Array element type used when reading from an array
     ///
@@ -57,7 +57,12 @@ pub unsafe trait ArrayElement: Debug + Sized {
     /// implementations of the same logical concept (e.g. if `WriteValue` is a
     /// slice of booleans, `ReadValue` will be a slice of booleans as well). It
     /// just happens that the implementations of this concept may differ.
-    type ReadValue<'a>: Clone + Debug + Sized;
+    ///
+    /// Although it is currently impossible to express this at the Rust type
+    /// system level, we guarantee that if one of `ReadValue` an `WriteValue`
+    /// implements `PartialEq`, then they will both do so and also will be
+    /// comparable with each other.
+    type ReadValue<'a>: Value;
 
     /// Slice type used for bulk insertion into an array
     ///
@@ -87,6 +92,11 @@ pub unsafe trait ArrayElement: Debug + Sized {
     type ExtendFromSliceResult: Debug;
 }
 
+/// A value that can be stored in an Arrow array
+pub trait Value: Clone + Copy + Debug + Default + Send + Sized + Sync {}
+//
+impl<T: Clone + Copy + Debug + Default + Send + Sized + Sync> Value for T {}
+
 /// A Rust slice `&[T]` or a columnar generalization thereof
 ///
 /// Columnar slice types like [`OptionSlice`] are internally composed of
@@ -100,9 +110,9 @@ pub unsafe trait ArrayElement: Debug + Sized {
 /// rarely wrong, it is strongly recommended that implementations of these other
 /// methods start with a `debug_assert!(self.is_consistent())` debug assertion
 /// in order to detect such incorrect usage in testing environments.
-pub trait Slice: Copy + Clone + Debug + Sized {
+pub trait Slice: Value {
     /// Individual slice element
-    type Element: Clone + Debug;
+    type Element: Value;
 
     /// Truth that all inner slices are consistent with each other
     ///
@@ -180,7 +190,7 @@ pub trait Slice: Copy + Clone + Debug + Sized {
     fn split_at(&self, mid: usize) -> (Self, Self);
 }
 //
-impl<T: Clone + Debug> Slice for &[T] {
+impl<T: Value> Slice for &[T] {
     type Element = T;
 
     #[inline]
@@ -195,7 +205,7 @@ impl<T: Clone + Debug> Slice for &[T] {
 
     #[inline]
     unsafe fn get_cloned_unchecked(&self, index: usize) -> T {
-        unsafe { <[T]>::get_unchecked(self, index).clone() }
+        unsafe { *<[T]>::get_unchecked(self, index) }
     }
 
     fn iter_cloned(&self) -> impl Iterator<Item = T> + '_ {
@@ -226,17 +236,51 @@ impl<T: ArrayElement> NullableElement for Option<T> where Option<T>: ArrayElemen
 ///
 /// Validity can be tracked using either a standard `&[bool]` Rust slice of
 /// booleans or a bit-packed [`Bitmap`].
-#[derive(Copy, Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Default, Hash)]
 pub struct OptionSlice<Values: Slice, Validity: Slice<Element = bool>> {
-    /// Values that may or may not be valid
-    pub values: Values,
-
     /// Truth that each element of `values` is valid
     pub is_valid: Validity,
+
+    /// Values that may or may not be valid
+    pub values: Values,
 }
 //
 impl<Values: Slice, Validity: Slice<Element = bool>> OptionSlice<Values, Validity> {
     crate::inherent_slice_methods!(is_consistent, element: Option<Values::Element>);
+}
+//
+impl<Values: Slice, Validity: Slice<Element = bool>> Eq for OptionSlice<Values, Validity> where
+    Values::Element: Eq
+{
+}
+//
+impl<Values: Slice, Validity: Slice<Element = bool>> Ord for OptionSlice<Values, Validity>
+where
+    Values::Element: Ord,
+{
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.iter().cmp(other.iter())
+    }
+}
+//
+impl<Values: Slice, Validity: Slice<Element = bool>, OtherSlice: Slice> PartialEq<OtherSlice>
+    for OptionSlice<Values, Validity>
+where
+    Option<Values::Element>: PartialEq<OtherSlice::Element>,
+{
+    fn eq(&self, other: &OtherSlice) -> bool {
+        self.iter().eq(other.iter_cloned())
+    }
+}
+//
+impl<Values: Slice, Validity: Slice<Element = bool>, OtherSlice: Slice> PartialOrd<OtherSlice>
+    for OptionSlice<Values, Validity>
+where
+    Option<Values::Element>: PartialOrd<OtherSlice::Element>,
+{
+    fn partial_cmp(&self, other: &OtherSlice) -> Option<std::cmp::Ordering> {
+        self.iter().partial_cmp(other.iter_cloned())
+    }
 }
 //
 impl<Values: Slice, Validity: Slice<Element = bool>> Slice for OptionSlice<Values, Validity> {

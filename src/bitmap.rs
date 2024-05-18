@@ -1,14 +1,18 @@
 //! Arrow-style bitmaps
 
 use crate::element::Slice;
-use std::iter::{FusedIterator, Take};
+use std::{
+    cmp::Ordering,
+    hash::{Hash, Hasher},
+    iter::{FusedIterator, Take},
+};
 
 /// A bit-packed slice of booleans
 ///
 /// This type is logically equivalent to `&[bool]`, but is implemented over a
 /// bit-packed `&[u8]` representation. It is notably used to provide in-place
 /// access to the null buffer/validity bitmap of Arrow arrays.
-#[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct Bitmap<'array> {
     /// Raw bitmap, possibly containing superfluous bits
     raw: &'array [u8],
@@ -49,6 +53,17 @@ impl<'array> Bitmap<'array> {
     crate::inherent_slice_methods!(element: bool, iter_lifetime: 'array);
 }
 //
+impl Eq for Bitmap<'_> {}
+//
+impl Hash for Bitmap<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write_usize(self.len());
+        for b in self {
+            <bool as Hash>::hash(&b, state);
+        }
+    }
+}
+//
 impl<'slice> IntoIterator for &'slice Bitmap<'slice> {
     type Item = bool;
     type IntoIter = Iter<'slice>;
@@ -64,9 +79,21 @@ impl<'slice> IntoIterator for &'slice Bitmap<'slice> {
     }
 }
 //
-impl PartialEq<&[bool]> for Bitmap<'_> {
-    fn eq(&self, other: &&[bool]) -> bool {
-        self.iter().eq(other.iter().copied())
+impl Ord for Bitmap<'_> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.iter().cmp(other.iter())
+    }
+}
+//
+impl<OtherBools: Slice<Element = bool>> PartialEq<OtherBools> for Bitmap<'_> {
+    fn eq(&self, other: &OtherBools) -> bool {
+        self.iter().eq(other.iter_cloned())
+    }
+}
+//
+impl<OtherBools: Slice<Element = bool>> PartialOrd<OtherBools> for Bitmap<'_> {
+    fn partial_cmp(&self, other: &OtherBools) -> Option<Ordering> {
+        self.iter().partial_cmp(other.iter_cloned())
     }
 }
 //

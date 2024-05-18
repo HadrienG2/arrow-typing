@@ -1,6 +1,6 @@
 //! Primitive array element types
 
-use super::{ArrayElement, Slice};
+use super::{ArrayElement, Slice, Value};
 use crate::impl_option_element;
 use arrow_array::{
     builder::{BooleanBuilder, NullBuilder, PrimitiveBuilder},
@@ -9,7 +9,7 @@ use arrow_array::{
 use half::f16;
 #[cfg(any(test, feature = "proptest"))]
 use proptest::prelude::*;
-use std::{fmt::Debug, marker::PhantomData, num::TryFromIntError};
+use std::{cmp::Ordering, fmt::Debug, hash::Hash, marker::PhantomData, num::TryFromIntError};
 
 // === Arrow primitive types other than DataTypes ===
 
@@ -33,8 +33,8 @@ unsafe impl ArrayElement for Null {
 // TODO: Once Rust gets some version of the adt_const_params nightly feature,
 //       create a `ConstSlice<T, const ELEMENT: T>(usize)` that allows the
 //       element to be specified at compile time and use that for Null's slices.
-#[derive(Copy, Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct UniformSlice<T: Copy + Debug> {
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord)]
+pub struct UniformSlice<T: Value> {
     /// Common value of each element of the slice
     element: T,
 
@@ -42,7 +42,7 @@ pub struct UniformSlice<T: Copy + Debug> {
     len: usize,
 }
 //
-impl<T: Copy + Debug> UniformSlice<T> {
+impl<T: Value> UniformSlice<T> {
     /// Set up a uniform slice with `len` elements, all equal to `element`
     pub fn new(element: T, len: usize) -> Self {
         Self { element, len }
@@ -51,7 +51,25 @@ impl<T: Copy + Debug> UniformSlice<T> {
     crate::inherent_slice_methods!(element: T);
 }
 //
-impl<T: Copy + Debug> Slice for UniformSlice<T> {
+impl<T: Value, S: Slice> PartialEq<S> for UniformSlice<T>
+where
+    T: PartialEq<S::Element>,
+{
+    fn eq(&self, other: &S) -> bool {
+        self.iter().eq(other.iter_cloned())
+    }
+}
+//
+impl<T: Value, S: Slice> PartialOrd<S> for UniformSlice<T>
+where
+    T: PartialOrd<S::Element>,
+{
+    fn partial_cmp(&self, other: &S) -> Option<std::cmp::Ordering> {
+        self.iter().partial_cmp(other.iter_cloned())
+    }
+}
+//
+impl<T: Value> Slice for UniformSlice<T> {
     type Element = T;
 
     #[inline]
@@ -103,7 +121,7 @@ impl_option_element!(bool);
 // === Strong value types matching non-std Arrow DataTypes ===
 
 /// Date type representing the elapsed time since the UNIX epoch in days
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
 pub struct Date<T>(T);
 //
@@ -154,7 +172,7 @@ impl From<Date64> for i64 {
 //       >(T);
 
 /// Measure of elapsed time with a certain integer unit
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
 pub struct Duration<Unit: TimeUnit>(i64, PhantomData<Unit>);
 //
@@ -393,7 +411,7 @@ impl From<IntervalYearMonth> for i32 {
 }
 
 /// Elapsed time since midnight
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
 pub struct Time<Unit: TimeUnit>(<Unit as TimeUnit>::TimeStorage);
 //
@@ -484,7 +502,7 @@ impl From<Time<Nanosecond>> for i64 {
 /// Unit of time
 pub trait TimeUnit: Debug {
     /// Storage format for time since midnight in this unit
-    type TimeStorage: Clone + Copy + Debug + Default;
+    type TimeStorage: Value + Eq + Hash + Ord;
 }
 
 /// Second duration storage granularity
