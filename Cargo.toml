@@ -4,9 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-arrow-array = "51.0.0"
-arrow-buffer = "51.0.0"
-arrow-schema = "51.0.0"
+# TODO: Switch back to an arrow release once the master validity slice and data
+#       access improvements have been released.
+arrow-array = { git = "https://github.com/apache/arrow-rs.git" }
+arrow-buffer = { git = "https://github.com/apache/arrow-rs.git" }
+arrow-schema = { git = "https://github.com/apache/arrow-rs.git" }
 half = "2.4.1"
 proptest = { version = "1.4.0", default-features = false, optional = true }
 
