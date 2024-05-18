@@ -8,7 +8,7 @@ use arrow_array::{builder::GenericListBuilder, OffsetSizeTrait};
 use arrow_schema::ArrowError;
 use std::{fmt::Debug, hash::Hash, marker::PhantomData};
 
-use super::{OptionSlice, Value};
+use super::{OptionSlice, OptionalElement, Value};
 
 /// A list of elements of type `Item`
 ///
@@ -553,6 +553,13 @@ unsafe impl<Item: ArrayElement, OffsetSize: OffsetSizeTrait> ArrayElement
     type WriteSlice<'a> = ListWriteSlice<'a, Item>;
     type ReadSlice<'a> = ListReadSlice<'a, Item, OffsetSize>;
     type ExtendFromSliceResult = Result<(), ArrowError>;
+}
+//
+// SAFETY: GenericListBuilder does use a Bitmap validity slice
+unsafe impl<Item: ArrayElement, OffsetSize: OffsetSizeTrait> OptionalElement
+    for List<Item, OffsetSize>
+{
+    type ValiditySlice<'a> = Bitmap<'a>;
 }
 //
 // SAFETY: Option is not a primitive type and is therefore not affected by the

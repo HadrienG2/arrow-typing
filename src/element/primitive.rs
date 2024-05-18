@@ -1,7 +1,7 @@
 //! Primitive array element types
 
-use super::{ArrayElement, Slice, Value};
-use crate::impl_option_element;
+use super::{ArrayElement, OptionalElement, Slice, Value};
+use crate::{bitmap::Bitmap, impl_option_element};
 use arrow_array::{
     builder::{BooleanBuilder, NullBuilder, PrimitiveBuilder},
     types::*,
@@ -64,7 +64,7 @@ impl<T: Value, S: Slice> PartialOrd<S> for UniformSlice<T>
 where
     T: PartialOrd<S::Element>,
 {
-    fn partial_cmp(&self, other: &S) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &S) -> Option<Ordering> {
         self.iter().partial_cmp(other.iter_cloned())
     }
 }
@@ -116,6 +116,12 @@ unsafe impl ArrayElement for bool {
     type ReadSlice<'a> = &'a [Self];
     type ExtendFromSliceResult = ();
 }
+//
+// SAFETY: BooleanBuilder does use a Bitmap validity slice
+unsafe impl OptionalElement for bool {
+    type ValiditySlice<'a> = Bitmap<'a>;
+}
+//
 impl_option_element!(bool);
 
 // === Strong value types matching non-std Arrow DataTypes ===
@@ -562,6 +568,9 @@ type ArrowType<T> = <T as PrimitiveType>::Arrow;
 // Easy access to the NativeType backing a PrimitiveType
 pub(crate) type NativeType<T> = <ArrowType<T> as ArrowPrimitiveType>::Native;
 //
+// SAFETY: The types for which this trait is implemented must be a
+//         `repr(transparent)` wrapper over the underlying
+//         `ArrowPrimitiveType::NativeType`.
 macro_rules! unsafe_impl_primitive_type {
     ($($local:ty => $arrow:ty),*) => {
         $(
@@ -577,6 +586,11 @@ macro_rules! unsafe_impl_primitive_type {
                 type WriteSlice<'a> = &'a [Self];
                 type ReadSlice<'a> = &'a [Self];
                 type ExtendFromSliceResult = ();
+            }
+
+            // SAFETY: PrimitiveBuilder does use a Bitmap validity slice
+            unsafe impl OptionalElement for $local {
+                type ValiditySlice<'a> = Bitmap<'a>;
             }
 
             impl_option_element!($local);

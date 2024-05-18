@@ -1,8 +1,8 @@
 //! Strong typing layer on top of [`BooleanBuilder`]
 
-use super::{Backend, Capacity, NoAlternateConfig, TypedBackend, ValiditySlice};
-use crate::{builder::BuilderConfig, element::OptionWriteSlice};
-use arrow_array::builder::BooleanBuilder;
+use super::{Backend, Capacity, NoAlternateConfig, TypedBackend};
+use crate::{bitmap::Bitmap, builder::BuilderConfig, element::OptionWriteSlice};
+use arrow_array::builder::{ArrayBuilder, BooleanBuilder};
 use arrow_schema::{ArrowError, DataType, Field};
 
 impl Backend for BooleanBuilder {
@@ -14,17 +14,18 @@ impl Backend for BooleanBuilder {
     fn extend_with_nulls(&mut self, n: usize) {
         self.append_nulls(n)
     }
+
+    type ValiditySlice<'a> = Bitmap<'a>;
+
+    fn validity_slice(&self) -> Option<Self::ValiditySlice<'_>> {
+        self.validity_slice()
+            .map(|validity| Bitmap::new(validity, self.len()))
+    }
 }
 
 impl Capacity for BooleanBuilder {
     fn capacity(&self) -> usize {
         self.capacity()
-    }
-}
-
-impl ValiditySlice for BooleanBuilder {
-    fn validity_slice(&self) -> Option<&[u8]> {
-        self.validity_slice()
     }
 }
 

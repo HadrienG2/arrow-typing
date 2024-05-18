@@ -1,14 +1,18 @@
 //! Strong typing layer on top of [`PrimitiveBuilder`]
 
-use super::{Backend, Capacity, NoAlternateConfig, TypedBackend, ValiditySlice};
+use super::{Backend, Capacity, NoAlternateConfig, TypedBackend};
 use crate::{
+    bitmap::Bitmap,
     builder::BuilderConfig,
     element::{
         primitive::{NativeType, PrimitiveType},
         ArrayElement, OptionWriteSlice,
     },
 };
-use arrow_array::{builder::PrimitiveBuilder, types::ArrowPrimitiveType};
+use arrow_array::{
+    builder::{ArrayBuilder, PrimitiveBuilder},
+    types::ArrowPrimitiveType,
+};
 use arrow_schema::{ArrowError, Field};
 use std::{fmt::Debug, panic::AssertUnwindSafe};
 
@@ -21,17 +25,18 @@ impl<T: ArrowPrimitiveType + Debug> Backend for PrimitiveBuilder<T> {
     fn extend_with_nulls(&mut self, n: usize) {
         self.append_nulls(n)
     }
+
+    type ValiditySlice<'a> = Bitmap<'a>;
+
+    fn validity_slice(&self) -> Option<Self::ValiditySlice<'_>> {
+        self.validity_slice()
+            .map(|validity| Bitmap::new(validity, self.len()))
+    }
 }
 
 impl<T: ArrowPrimitiveType + Debug> Capacity for PrimitiveBuilder<T> {
     fn capacity(&self) -> usize {
         usize::MAX
-    }
-}
-
-impl<T: ArrowPrimitiveType + Debug> ValiditySlice for PrimitiveBuilder<T> {
-    fn validity_slice(&self) -> Option<&[u8]> {
-        self.validity_slice()
     }
 }
 

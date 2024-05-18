@@ -5,11 +5,11 @@ pub(crate) mod backend;
 use std::fmt::{self, Debug, Formatter};
 
 use self::backend::{list::ListConfig, Backend, Capacity, NoAlternateConfig, TypedBackend};
+use crate::element::{list::ListLike, ArrayElement, NullableElement, OptionalElement};
 #[cfg(doc)]
-use crate::element::{primitive::PrimitiveType, OptionSlice};
 use crate::{
     bitmap::Bitmap,
-    element::{list::ListLike, ArrayElement, NullableElement},
+    element::{primitive::PrimitiveType, OptionSlice},
 };
 use arrow_array::builder::ArrayBuilder;
 
@@ -151,8 +151,9 @@ impl<T: ArrayElement> TypedBuilder<T> {
     }
 }
 //
-impl<T: ArrayElement> TypedBuilder<Option<T>>
+impl<T: OptionalElement> TypedBuilder<Option<T>>
 where
+    // TODO: Remove bound once it becomes redundant with OptionalElement
     Option<T>: ArrayElement<BuilderBackend = BuilderBackend<T>>,
 {
     /// Efficiently append multiple non-null values into the builder
@@ -226,18 +227,15 @@ impl<T: ArrayElement> TypedBuilder<T> {
     //        returns a TypedArrayRef
 }
 //
-impl<T> TypedBuilder<Option<T>>
+impl<T: OptionalElement> TypedBuilder<Option<T>>
 where
+    // TODO: Remove bound once it becomes redundant with OptionalElement
     Option<T>: ArrayElement,
-    BuilderBackend<Option<T>>: backend::ValiditySlice,
 {
     /// Current null buffer / validity slice
     ///
-    /// This operation is only available on `TypedBuilder`s of optional `bool`s,
-    /// [primitive types](PrimitiveType), bytes and strings.
-    ///
-    /// It may return `None` when all elements are known to be valid. Otherwise,
-    /// it will return a `&[bool]`-like [`Bitmap`] which can be used to check
+    /// This may return `None` when all elements are known to be valid.
+    /// Otherwise, it will return a slice of booleans which can be used to check
     /// which elements are valid.
     ///
     /// ```rust
@@ -258,11 +256,32 @@ where
     /// );
     /// # Ok::<_, anyhow::Error>(())
     /// ```
-    pub fn validity_slice(&self) -> Option<Bitmap<'_>> {
-        use backend::ValiditySlice;
-        self.0
-            .validity_slice()
-            .map(|bitmap| Bitmap::new(bitmap, self.len()))
+    pub fn validity_slice(&self) -> Option<T::ValiditySlice<'_>> {
+        // TODO: This unsafe code is made necessary by the fast that the Rust
+        //       trait system is not yet powerful enough to let us assert that
+        //       T::ValiditySlice is the same type as
+        //       BuilderBackend<Option<T>>::ValiditySlice. Once this changes,
+        //       add the proper bound in the right place and replace this code
+        //       with the simple `self.0.validity_slice()` that it should be.
+        // SAFETY: The transmute is safe because the OptionalElement safety
+        //         contract lets us assume that T::ValiditySlice is the same
+        //         type as BuilderBackend<T>::ValiditySlice.
+        #[allow(forgetting_copy_types)]
+        unsafe {
+            type BackendSlice<'a, T> = <BuilderBackend<Option<T>> as Backend>::ValiditySlice<'a>;
+            type ElementSlice<'a, T> = <T as OptionalElement>::ValiditySlice<'a>;
+            debug_assert_eq!(
+                std::mem::size_of::<BackendSlice<'_, T>>(),
+                std::mem::size_of::<ElementSlice<'_, T>>(),
+                "Should be true if OptionalElement is implemented correctly"
+            );
+            self.0.validity_slice().map(|validity| {
+                let result =
+                    std::mem::transmute_copy::<BackendSlice<'_, T>, ElementSlice<'_, T>>(&validity);
+                std::mem::forget(validity);
+                result
+            })
+        }
     }
 }
 //
@@ -566,15 +585,16 @@ mod tests {
     use super::*;
     use crate::element::{OptionWriteSlice, Slice};
     use arrow_schema::ArrowError;
-    use backend::ValiditySlice;
     use proptest::{prelude::*, sample::SizeRange, test_runner::TestCaseResult};
 
     /// Check the validity mask of a TypedBuilder that has the validity_slice()
     /// extension
-    pub fn check_validity<T>(builder: &TypedBuilder<Option<T>>, expected: &[bool]) -> TestCaseResult
+    pub fn check_validity<T: OptionalElement>(
+        builder: &TypedBuilder<Option<T>>,
+        expected: &[bool],
+    ) -> TestCaseResult
     where
         Option<T>: ArrayElement,
-        BuilderBackend<Option<T>>: ValiditySlice,
     {
         if let Some(validity_slice) = builder.validity_slice() {
             prop_assert_eq!(validity_slice, expected);
@@ -649,10 +669,11 @@ mod tests {
     ///
     /// For almost every [`ArrayElement`] type `T` with the exception of `Null`,
     /// `Option<T>` is also an `ArrayElement` and this test can be run.
-    pub fn check_init_default_optional<T: ArrayElement>() -> TestCaseResult
+    pub fn check_init_default_optional<T: OptionalElement>() -> TestCaseResult
     where
-        Option<T>: ArrayElement,
         BackendExtraConfig<T>: Default,
+        // TODO: Remove bounds they become redundant with OptionalElement
+        Option<T>: ArrayElement,
         BackendExtraConfig<Option<T>>: Default,
     {
         check_init_default::<T>()?;
@@ -691,13 +712,13 @@ mod tests {
     }
 
     /// Like `check_push`, but with `Option<T>` and validity bitmap checking
-    pub fn check_push_option<T: ArrayElement>(
+    pub fn check_push_option<T: OptionalElement>(
         config: BuilderConfig<Option<T>>,
         value: Option<T>,
     ) -> TestCaseResult
     where
+        // TODO: Remove bound once it becomes redundant with OptionalElement
         Option<T>: ArrayElement,
-        BuilderBackend<Option<T>>: ValiditySlice,
         for<'a> Option<T>: Into<<Option<T> as ArrayElement>::WriteValue<'a>>,
     {
         let init_capacity = config.capacity();
@@ -711,18 +732,18 @@ mod tests {
 
     /// Check outcome of extending a builder of T or Option<T> with a slice of
     /// values
-    pub fn check_extend_from_values<T: ArrayElement>(
+    pub fn check_extend_from_values<T: OptionalElement>(
         make_config: impl Fn() -> BuilderConfig<T>,
         values: T::WriteSlice<'_>,
     ) -> TestCaseResult
     where
+        // TODO: Remove bound once it becomes redundant with OptionalElement
         Option<T>: ArrayElement<BuilderBackend = BuilderBackend<T>>,
         BuilderBackend<T>: TypedBackend<
             Option<T>,
             ExtraConfig = BackendExtraConfig<T>,
             AlternateConfig = BackendAlternateConfig<T>,
         >,
-        BuilderBackend<Option<T>>: ValiditySlice,
         for<'a> T::WriteValue<'a>: Clone + Into<<Option<T> as ArrayElement>::WriteValue<'a>>,
     {
         let init_capacity = make_config().capacity();
@@ -789,14 +810,14 @@ mod tests {
     }
 
     /// Check `extend_from_slice` on `TypedBuilder<Option<T>>`.
-    pub fn check_extend_from_options<T: ArrayElement>(
+    pub fn check_extend_from_options<T: OptionalElement>(
         config: BuilderConfig<Option<T>>,
         slice: OptionWriteSlice<T>,
     ) -> TestCaseResult
     where
+        // TODO: Remove bound once it becomes redundant with OptionalElement
         Option<T>: ArrayElement<ExtendFromSliceResult = Result<(), ArrowError>>,
         for<'a> OptionWriteSlice<'a, T>: Into<<Option<T> as ArrayElement>::WriteSlice<'a>>,
-        BuilderBackend<Option<T>>: ValiditySlice,
     {
         let init_capacity = config.capacity();
         let mut builder = TypedBuilder::<Option<T>>::with_config(config);
@@ -815,13 +836,13 @@ mod tests {
     }
 
     /// Check `extend_with_nulls` on `TypedBuilder<Option<T>>`
-    pub fn check_extend_with_nulls<T: ArrayElement>(
+    pub fn check_extend_with_nulls<T: OptionalElement>(
         config: BuilderConfig<Option<T>>,
         num_nulls: usize,
     ) -> TestCaseResult
     where
+        // TODO: Remove bound once it becomes redundant with OptionalElement
         Option<T>: ArrayElement,
-        BuilderBackend<Option<T>>: ValiditySlice,
     {
         let init_capacity = config.capacity();
         let mut builder = TypedBuilder::<Option<T>>::with_config(config);

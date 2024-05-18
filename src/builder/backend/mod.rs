@@ -24,12 +24,16 @@ pub mod primitive;
 // with special cases.
 
 use super::BuilderConfig;
-use crate::element::ArrayElement;
+use crate::element::{ArrayElement, Slice};
 use arrow_array::builder::ArrayBuilder;
 use arrow_schema::Field;
 use std::fmt::Debug;
 
 /// Arrow builder that can accept strongly typed entries of type `T`
+//
+// TODO: Once the Rust type system supports it, assert that if T is
+//       OptionalElement, then <T as OptionalElement>::ValiditySlice is the same
+//       type as <Self as Backend>::ValiditySlice.
 pub trait TypedBackend<T: ArrayElement>: Backend {
     /// Extra configuration requested by the new/with_capacity constructor
     type ExtraConfig: Debug + PartialEq;
@@ -77,6 +81,8 @@ pub trait Capacity {
 ///
 /// Used as the `TypedBackend::AlternateConfig` type when only
 /// `new()`/`with_capacity()` construction is available.
+//
+// TODO: Replace with ! once stabilized
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum NoAlternateConfig {}
 //
@@ -94,10 +100,10 @@ pub trait Backend: ArrayBuilder + Debug {
 
     /// Efficiently append `n` null values into the builder
     fn extend_with_nulls(&mut self, n: usize);
-}
 
-/// Access the current null buffer as a slice
-pub trait ValiditySlice: Backend {
+    /// Null buffer representation for this builder
+    type ValiditySlice<'a>: Slice<Element = bool> + Eq + PartialEq<&'a [bool]>;
+
     /// Returns the current null buffer as a slice
-    fn validity_slice(&self) -> Option<&[u8]>;
+    fn validity_slice(&self) -> Option<Self::ValiditySlice<'_>>;
 }

@@ -5,7 +5,7 @@ use crate::{
     builder::BuilderConfig,
     element::primitive::{Null, UniformSlice},
 };
-use arrow_array::builder::NullBuilder;
+use arrow_array::builder::{ArrayBuilder, NullBuilder};
 use arrow_schema::{DataType, Field};
 
 impl Backend for NullBuilder {
@@ -16,6 +16,12 @@ impl Backend for NullBuilder {
 
     fn extend_with_nulls(&mut self, n: usize) {
         self.append_nulls(n)
+    }
+
+    type ValiditySlice<'a> = UniformSlice<bool>;
+
+    fn validity_slice(&self) -> Option<UniformSlice<bool>> {
+        Some(UniformSlice::new(false, self.len()))
     }
 }
 

@@ -2,6 +2,7 @@
 
 use super::{Backend, NoAlternateConfig, TypedBackend};
 use crate::{
+    bitmap::Bitmap,
     builder::BuilderConfig,
     element::{
         list::{List, ListWriteSlice, OptionListWriteSlice},
@@ -27,6 +28,13 @@ impl<OffsetSize: OffsetSizeTrait, T: ArrayBuilder + Debug> Backend
         for _ in 0..n {
             self.append_null()
         }
+    }
+
+    type ValiditySlice<'a> = Bitmap<'a>;
+
+    fn validity_slice(&self) -> Option<Self::ValiditySlice<'_>> {
+        self.validity_slice()
+            .map(|validity| Bitmap::new(validity, self.len()))
     }
 }
 

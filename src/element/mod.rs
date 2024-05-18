@@ -220,13 +220,45 @@ impl<T: Value> Slice for &[T] {
 /// [`ArrayElement`] which has a null value
 ///
 /// This trait is implemented for both the null element type [`Null`] and
-/// options of valid array element types. It enables efficient bulk insertion of
-/// null values via [`TypedBuilder::extend_with_nulls()`].
+/// options of valid array element types.
+///
+/// It enables efficient bulk insertion of null values via
+/// [`TypedBuilder::extend_with_nulls()`].
 pub trait NullableElement: ArrayElement {}
 //
 impl NullableElement for Null {}
 //
 impl<T: ArrayElement> NullableElement for Option<T> where Option<T>: ArrayElement {}
+
+/// [`ArrayElement`] for which `Option<Self>` is an Arrow-supported storage type
+///
+/// This trait is implemented for almost every Arrow-supported storage type
+/// except for [`Null`] and `Option<_>`, so you can think of it as the logical
+/// opposite of [`NullableElement`].
+///
+/// It is used to expose `Option<_>`-specific array builder methods.
+///
+/// # Safety
+///
+/// `Self::ValiditySlice` must match the backend-specific validity slice type.
+//
+// TODO: Once the Rust type system supports it, enforce that
+//       Option<T>: NullableElement<
+//          BuilderBackend = BuilderBackend<T>,
+//          ReadValue<'a> = Option<T::ReadValue<'a>>,
+//          WriteValue<'a> = Option<T::WriteValue<'a>>,
+//          ReadSlice<'a> = OptionReadSlice<'a, T>>,
+//          WriteSlice<'a> = OptionWriteSlice<'a, T>>,
+//          ExtendFromSliceResult = Result<(), ArrowError>
+//       >
+//       BuilderBackend<T>::ValiditySlice = Self::ValiditySlice
+//       must hold and remove the corresponding bounds around the codebase.
+pub unsafe trait OptionalElement: ArrayElement {
+    /// Null buffer representation used for optional values of this type
+    ///
+    /// For all simple types, this will be a [`Bitmap`].
+    type ValiditySlice<'a>: Slice<Element = bool> + Eq + PartialEq<&'a [bool]>;
+}
 
 /// A columnar slice of `Option<T>`
 ///
