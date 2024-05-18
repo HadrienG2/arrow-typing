@@ -5,8 +5,9 @@ use crate::{
     bitmap::Bitmap,
     builder::BuilderConfig,
     element::{
+        option::OptionWriteSlice,
         primitive::{NativeType, PrimitiveType},
-        ArrayElement, OptionWriteSlice,
+        ArrayElement,
     },
 };
 use arrow_array::{
@@ -147,11 +148,11 @@ mod tests {
             BuilderConfig,
         },
         element::{
+            option::OptionSlice,
             primitive::{
                 Date32, Date64, Duration, IntervalDayTime, IntervalMonthDayNano, IntervalYearMonth,
                 Microsecond, Millisecond, Nanosecond, Second, Time,
             },
-            OptionSlice,
         },
         tests::length_or_capacity,
     };
@@ -203,7 +204,7 @@ mod tests {
                             BuilderConfig::with_capacity(init_capacity),
                             OptionSlice {
                                 values: &values[..],
-                                is_valid: &is_valid,
+                                is_valid: &is_valid[..],
                             }
                         )?;
                     }
@@ -300,7 +301,7 @@ mod tests {
                     BuilderConfig::with_capacity(init_capacity),
                     OptionSlice {
                         values: &values[..],
-                        is_valid: &is_valid,
+                        is_valid: &is_valid[..],
                     }
                 )?;
             }

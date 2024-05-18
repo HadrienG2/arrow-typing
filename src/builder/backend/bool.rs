@@ -1,7 +1,7 @@
 //! Strong typing layer on top of [`BooleanBuilder`]
 
 use super::{Backend, Capacity, NoAlternateConfig, TypedBackend};
-use crate::{bitmap::Bitmap, builder::BuilderConfig, element::OptionWriteSlice};
+use crate::{bitmap::Bitmap, builder::BuilderConfig, element::option::OptionWriteSlice};
 use arrow_array::builder::{ArrayBuilder, BooleanBuilder};
 use arrow_schema::{ArrowError, DataType, Field};
 
@@ -90,7 +90,7 @@ mod tests {
             check_init_default_optional, check_init_with_capacity_optional, check_push,
             check_push_option, option_vec,
         },
-        element::OptionSlice,
+        element::option::OptionSlice,
         tests::length_or_capacity,
         BuilderConfig,
     };
@@ -134,7 +134,7 @@ mod tests {
                 BuilderConfig::with_capacity(init_capacity),
                 OptionSlice {
                     values: &values[..],
-                    is_valid: &is_valid,
+                    is_valid: &is_valid[..],
                 }
             )?;
         }

@@ -5,11 +5,15 @@ pub(crate) mod backend;
 use std::fmt::{self, Debug, Formatter};
 
 use self::backend::{list::ListConfig, Backend, Capacity, NoAlternateConfig, TypedBackend};
-use crate::element::{list::ListLike, ArrayElement, NullableElement, OptionalElement};
+use crate::element::{
+    list::ListLike,
+    option::{NullableElement, OptionalElement},
+    ArrayElement,
+};
 #[cfg(doc)]
 use crate::{
     bitmap::Bitmap,
-    element::{primitive::PrimitiveType, OptionSlice},
+    element::{option::OptionSlice, primitive::PrimitiveType},
 };
 use arrow_array::builder::ArrayBuilder;
 
@@ -122,7 +126,7 @@ impl<T: ArrayElement> TypedBuilder<T> {
     /// are passed as [`OptionSlice`]s:
     ///
     /// ```rust
-    /// # use arrow_typing::{TypedBuilder, element::OptionSlice};
+    /// # use arrow_typing::{TypedBuilder, element::option::OptionSlice};
     /// let mut builder = TypedBuilder::<Option<f32>>::new();
     /// builder.extend_from_slice(OptionSlice {
     ///     values: &[
@@ -239,7 +243,7 @@ where
     /// which elements are valid.
     ///
     /// ```rust
-    /// # use arrow_typing::{TypedBuilder, element::OptionSlice};
+    /// # use arrow_typing::{TypedBuilder, element::option::OptionSlice};
     /// let mut builder = TypedBuilder::<Option<f32>>::new();
     /// let validity: &[bool] = &[true, false, true];
     /// builder.extend_from_slice(OptionSlice {
@@ -583,7 +587,7 @@ type BackendAlternateConfig<T> = <BuilderBackend<T> as TypedBackend<T>>::Alterna
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::element::{OptionWriteSlice, Slice};
+    use crate::element::{option::OptionWriteSlice, Slice};
     use arrow_schema::ArrowError;
     use proptest::{prelude::*, sample::SizeRange, test_runner::TestCaseResult};
 

@@ -23,8 +23,8 @@ macro_rules! impl_option_element {
             type BuilderBackend = <$t as $crate::element::ArrayElement>::BuilderBackend;
             type WriteValue<'a> = Option<<$t as $crate::element::ArrayElement>::WriteValue<'a>>;
             type ReadValue<'a> = Option<<$t as $crate::element::ArrayElement>::ReadValue<'a>>;
-            type WriteSlice<'a> = $crate::element::OptionWriteSlice<'a, $t>;
-            type ReadSlice<'a> = $crate::element::OptionReadSlice<'a, $t>;
+            type WriteSlice<'a> = $crate::element::option::OptionWriteSlice<'a, $t>;
+            type ReadSlice<'a> = $crate::element::option::OptionReadSlice<'a, $t>;
             type ExtendFromSliceResult = Result<(), arrow_schema::ArrowError>;
         }
     };

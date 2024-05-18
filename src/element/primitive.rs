@@ -1,6 +1,6 @@
 //! Primitive array element types
 
-use super::{ArrayElement, OptionalElement, Slice, Value};
+use super::{option::OptionalElement, ArrayElement, Slice, Value};
 use crate::{bitmap::Bitmap, impl_option_element};
 use arrow_array::{
     builder::{BooleanBuilder, NullBuilder, PrimitiveBuilder},

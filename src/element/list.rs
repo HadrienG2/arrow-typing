@@ -8,7 +8,10 @@ use arrow_array::{builder::GenericListBuilder, OffsetSizeTrait};
 use arrow_schema::ArrowError;
 use std::{fmt::Debug, hash::Hash, marker::PhantomData};
 
-use super::{OptionSlice, OptionalElement, Value};
+use super::{
+    option::{OptionSlice, OptionalElement},
+    Value,
+};
 
 /// A list of elements of type `Item`
 ///
