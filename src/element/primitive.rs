@@ -27,12 +27,26 @@ unsafe impl ArrayElement for Null {
     type WriteSlice<'a> = UniformSlice<Null>;
     type ExtendFromSliceResult = ();
 }
+
+// SAFETY: bool is not a PrimitiveType and is therefore not concerned by
+//         ArrayElement's safety contract.
+unsafe impl ArrayElement for bool {
+    type BuilderBackend = BooleanBuilder;
+    type WriteValue<'a> = Self;
+    type ReadValue<'a> = Self;
+    type WriteSlice<'a> = &'a [Self];
+    type ReadSlice<'a> = &'a [Self];
+    type ExtendFromSliceResult = ();
+}
 //
+// SAFETY: BooleanBuilder does use a Bitmap validity slice
+unsafe impl OptionalElement for bool {
+    type ValiditySlice<'a> = Bitmap<'a>;
+}
+//
+impl_option_element!(bool);
+
 /// A pseudo-slice whose elements are all equal to the same run-time constant
-//
-// TODO: Once Rust gets some version of the adt_const_params nightly feature,
-//       create a `ConstSlice<T, const ELEMENT: T>(usize)` that allows the
-//       element to be specified at compile time and use that for Null's slices.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord)]
 pub struct UniformSlice<T: Value> {
     /// Common value of each element of the slice
@@ -106,23 +120,68 @@ impl<T: Value> Slice for UniformSlice<T> {
     }
 }
 
-// SAFETY: bool is not a PrimitiveType and is therefore not concerned by
-//         ArrayElement's safety contract.
-unsafe impl ArrayElement for bool {
-    type BuilderBackend = BooleanBuilder;
-    type WriteValue<'a> = Self;
-    type ReadValue<'a> = Self;
-    type WriteSlice<'a> = &'a [Self];
-    type ReadSlice<'a> = &'a [Self];
-    type ExtendFromSliceResult = ();
+/// A pseudo-slice whose elements are all equal to the same compile-time boolean
+//
+// TODO: Once Rust gets some version of the adt_const_params nightly feature,
+//       generalize to a `ConstSlice<T, const ELEMENT: T>(usize)` and use that
+//       for the ReadSlice and WriteSlice of Null.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord)]
+pub struct ConstBoolSlice<const ELEMENT: bool>(usize);
+//
+impl<const ELEMENT: bool> ConstBoolSlice<ELEMENT> {
+    /// Set up a uniform slice with `len` elements, all equal to `ELEMENT`
+    pub fn new(len: usize) -> Self {
+        Self(len)
+    }
+
+    crate::inherent_slice_methods!(element: bool);
 }
 //
-// SAFETY: BooleanBuilder does use a Bitmap validity slice
-unsafe impl OptionalElement for bool {
-    type ValiditySlice<'a> = Bitmap<'a>;
+impl<const ELEMENT: bool, S: Slice> PartialEq<S> for ConstBoolSlice<ELEMENT>
+where
+    S::Element: PartialEq<bool>,
+{
+    fn eq(&self, other: &S) -> bool {
+        other.iter_cloned().eq(self.iter())
+    }
 }
 //
-impl_option_element!(bool);
+impl<const ELEMENT: bool, S: Slice> PartialOrd<S> for ConstBoolSlice<ELEMENT>
+where
+    S::Element: PartialOrd<bool>,
+{
+    fn partial_cmp(&self, other: &S) -> Option<Ordering> {
+        other.iter_cloned().partial_cmp(self.iter())
+    }
+}
+//
+impl<const ELEMENT: bool> Slice for ConstBoolSlice<ELEMENT> {
+    type Element = bool;
+
+    #[inline]
+    fn is_consistent(&self) -> bool {
+        true
+    }
+
+    #[inline]
+    fn len(&self) -> usize {
+        self.0
+    }
+
+    #[inline]
+    unsafe fn get_cloned_unchecked(&self, _index: usize) -> bool {
+        ELEMENT
+    }
+
+    fn iter_cloned(&self) -> impl Iterator<Item = bool> + '_ {
+        std::iter::repeat(ELEMENT).take(self.0)
+    }
+
+    fn split_at(&self, mid: usize) -> (Self, Self) {
+        assert!(mid <= self.0, "split point is above total element count");
+        (Self(mid), Self(self.0 - mid))
+    }
+}
 
 // === Strong value types matching non-std Arrow DataTypes ===
 

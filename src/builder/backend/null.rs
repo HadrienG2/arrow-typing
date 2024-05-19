@@ -3,7 +3,7 @@
 use super::{Backend, Capacity, NoAlternateConfig, TypedBackend};
 use crate::{
     builder::BuilderConfig,
-    element::primitive::{Null, UniformSlice},
+    element::primitive::{ConstBoolSlice, Null, UniformSlice},
 };
 use arrow_array::builder::{ArrayBuilder, NullBuilder};
 use arrow_schema::{DataType, Field};
@@ -18,10 +18,10 @@ impl Backend for NullBuilder {
         self.append_nulls(n)
     }
 
-    type ValiditySlice<'a> = UniformSlice<bool>;
+    type ValiditySlice<'a> = ConstBoolSlice<false>;
 
-    fn validity_slice(&self) -> Option<UniformSlice<bool>> {
-        Some(UniformSlice::new(false, self.len()))
+    fn validity_slice(&self) -> Option<ConstBoolSlice<false>> {
+        Some(ConstBoolSlice::new(self.len()))
     }
 }
 
