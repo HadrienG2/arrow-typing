@@ -186,9 +186,9 @@ impl<const ELEMENT: bool> Slice for ConstBoolSlice<ELEMENT> {
 /// A slice of booleans with an optimized all-true fast path
 ///
 /// Used to expose the null buffer of Arrow arrays, which has such an
-/// optimization for the non-null case.
+/// optimization for the case where all array elements are non-null.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord)]
-pub enum OptionValiditySlice<Validity: Slice<Element = bool>> {
+pub enum OptimizedValiditySlice<Validity: Slice<Element = bool>> {
     /// All inner booleans are equal to true
     AllTrue(ConstBoolSlice<true>),
 
@@ -196,7 +196,7 @@ pub enum OptionValiditySlice<Validity: Slice<Element = bool>> {
     SomeFalse(Validity),
 }
 //
-impl<Validity: Slice<Element = bool>> OptionValiditySlice<Validity> {
+impl<Validity: Slice<Element = bool>> OptimizedValiditySlice<Validity> {
     /// Reinterpret an Arrow null buffer
     pub(crate) fn from_arrow(validity: Option<Validity>, len: usize) -> Self {
         match validity {
@@ -211,13 +211,13 @@ impl<Validity: Slice<Element = bool>> OptionValiditySlice<Validity> {
     crate::inherent_slice_methods!(element: bool);
 }
 //
-impl<Validity: Slice<Element = bool>> Default for OptionValiditySlice<Validity> {
+impl<Validity: Slice<Element = bool>> Default for OptimizedValiditySlice<Validity> {
     fn default() -> Self {
         Self::AllTrue(ConstBoolSlice::default())
     }
 }
 //
-impl<Validity: Slice<Element = bool>, S: Slice> PartialEq<S> for OptionValiditySlice<Validity>
+impl<Validity: Slice<Element = bool>, S: Slice> PartialEq<S> for OptimizedValiditySlice<Validity>
 where
     S::Element: PartialEq<bool>,
 {
@@ -226,7 +226,7 @@ where
     }
 }
 //
-impl<Validity: Slice<Element = bool>, S: Slice> PartialOrd<S> for OptionValiditySlice<Validity>
+impl<Validity: Slice<Element = bool>, S: Slice> PartialOrd<S> for OptimizedValiditySlice<Validity>
 where
     S::Element: PartialOrd<bool>,
 {
@@ -235,7 +235,7 @@ where
     }
 }
 //
-impl<Validity: Slice<Element = bool>> Slice for OptionValiditySlice<Validity> {
+impl<Validity: Slice<Element = bool>> Slice for OptimizedValiditySlice<Validity> {
     type Element = bool;
 
     #[inline]

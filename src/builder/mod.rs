@@ -8,7 +8,7 @@ use self::backend::{list::ListConfig, Backend, Capacity, NoAlternateConfig, Type
 use crate::element::{
     list::ListLike,
     option::{NullableElement, OptionalElement},
-    primitive::OptionValiditySlice,
+    primitive::OptimizedValiditySlice,
     ArrayElement,
 };
 #[cfg(doc)]
@@ -256,7 +256,7 @@ where
     /// );
     /// # Ok::<_, anyhow::Error>(())
     /// ```
-    pub fn validity_slice(&self) -> OptionValiditySlice<T::ValiditySlice<'_>> {
+    pub fn validity_slice(&self) -> OptimizedValiditySlice<T::ValiditySlice<'_>> {
         // TODO: This unsafe code is made necessary by the fast that the Rust
         //       trait system is not yet powerful enough to let us assert that
         //       T::ValiditySlice is the same type as
@@ -283,7 +283,7 @@ where
                 result
             })
         };
-        OptionValiditySlice::from_arrow(validity, self.0.len())
+        OptimizedValiditySlice::from_arrow(validity, self.0.len())
     }
 }
 //

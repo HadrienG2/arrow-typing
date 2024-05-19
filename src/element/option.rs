@@ -1,6 +1,6 @@
 //! Arrays of optional values
 
-use super::{ArrayElement, Slice};
+use super::{primitive::ConstBoolSlice, ArrayElement, Slice};
 #[cfg(doc)]
 use crate::builder::TypedBuilder;
 use crate::{bitmap::Bitmap, element::primitive::Null};
@@ -73,6 +73,15 @@ impl<Values: Slice, Validity: Slice<Element = bool>> OptionSlice<Values, Validit
 impl<Values: Slice, Validity: Slice<Element = bool>> Eq for OptionSlice<Values, Validity> where
     Values::Element: Eq
 {
+}
+//
+impl<Values: Slice> From<Values> for OptionSlice<Values, ConstBoolSlice<true>> {
+    fn from(values: Values) -> Self {
+        Self {
+            is_valid: ConstBoolSlice::new(values.len()),
+            values,
+        }
+    }
 }
 //
 impl<Values: Slice, Validity: Slice<Element = bool>> Ord for OptionSlice<Values, Validity>
