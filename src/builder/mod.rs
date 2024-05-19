@@ -8,6 +8,7 @@ use self::backend::{list::ListConfig, Backend, Capacity, NoAlternateConfig, Type
 use crate::element::{
     list::ListLike,
     option::{NullableElement, OptionalElement},
+    primitive::OptionValiditySlice,
     ArrayElement,
 };
 #[cfg(doc)]
@@ -238,10 +239,6 @@ where
 {
     /// Current null buffer / validity slice
     ///
-    /// This may return `None` when all elements are known to be valid.
-    /// Otherwise, it will return a slice of booleans which can be used to check
-    /// which elements are valid.
-    ///
     /// ```rust
     /// # use arrow_typing::{TypedBuilder, element::option::OptionSlice};
     /// let mut builder = TypedBuilder::<Option<f32>>::new();
@@ -255,23 +252,23 @@ where
     ///     is_valid: validity
     /// })?;
     /// assert_eq!(
-    ///     builder.validity_slice().expect("not all elements are valid"),
-    ///     validity
+    ///     builder.validity_slice(), validity
     /// );
     /// # Ok::<_, anyhow::Error>(())
     /// ```
-    pub fn validity_slice(&self) -> Option<T::ValiditySlice<'_>> {
+    pub fn validity_slice(&self) -> OptionValiditySlice<T::ValiditySlice<'_>> {
         // TODO: This unsafe code is made necessary by the fast that the Rust
         //       trait system is not yet powerful enough to let us assert that
         //       T::ValiditySlice is the same type as
         //       BuilderBackend<Option<T>>::ValiditySlice. Once this changes,
         //       add the proper bound in the right place and replace this code
-        //       with the simple `self.0.validity_slice()` that it should be.
+        //       with the simple `let validity = self.0.validity_slice()` that
+        //       it should be.
         // SAFETY: The transmute is safe because the OptionalElement safety
         //         contract lets us assume that T::ValiditySlice is the same
         //         type as BuilderBackend<T>::ValiditySlice.
         #[allow(forgetting_copy_types)]
-        unsafe {
+        let validity = unsafe {
             type BackendSlice<'a, T> = <BuilderBackend<Option<T>> as Backend>::ValiditySlice<'a>;
             type ElementSlice<'a, T> = <T as OptionalElement>::ValiditySlice<'a>;
             debug_assert_eq!(
@@ -285,7 +282,8 @@ where
                 std::mem::forget(validity);
                 result
             })
-        }
+        };
+        OptionValiditySlice::from_arrow(validity, self.0.len())
     }
 }
 //
@@ -600,11 +598,7 @@ mod tests {
     where
         Option<T>: ArrayElement,
     {
-        if let Some(validity_slice) = builder.validity_slice() {
-            prop_assert_eq!(validity_slice, expected);
-        } else {
-            prop_assert!(expected.iter().all(|valid| *valid));
-        }
+        prop_assert_eq!(builder.validity_slice(), expected);
         Ok(())
     }
 

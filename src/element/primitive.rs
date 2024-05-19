@@ -183,6 +183,112 @@ impl<const ELEMENT: bool> Slice for ConstBoolSlice<ELEMENT> {
     }
 }
 
+/// A slice of booleans with an optimized all-true fast path
+///
+/// Used to expose the null buffer of Arrow arrays, which has such an
+/// optimization for the non-null case.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord)]
+pub enum OptionValiditySlice<Validity: Slice<Element = bool>> {
+    /// All inner booleans are equal to true
+    AllTrue(ConstBoolSlice<true>),
+
+    /// At least some inner booleans are equal to false
+    SomeFalse(Validity),
+}
+//
+impl<Validity: Slice<Element = bool>> OptionValiditySlice<Validity> {
+    /// Reinterpret an Arrow null buffer
+    pub(crate) fn from_arrow(validity: Option<Validity>, len: usize) -> Self {
+        match validity {
+            Some(validity) => {
+                debug_assert_eq!(validity.len(), len);
+                Self::SomeFalse(validity)
+            }
+            None => Self::AllTrue(ConstBoolSlice::new(len)),
+        }
+    }
+
+    crate::inherent_slice_methods!(element: bool);
+}
+//
+impl<Validity: Slice<Element = bool>> Default for OptionValiditySlice<Validity> {
+    fn default() -> Self {
+        Self::AllTrue(ConstBoolSlice::default())
+    }
+}
+//
+impl<Validity: Slice<Element = bool>, S: Slice> PartialEq<S> for OptionValiditySlice<Validity>
+where
+    S::Element: PartialEq<bool>,
+{
+    fn eq(&self, other: &S) -> bool {
+        other.iter_cloned().eq(self.iter())
+    }
+}
+//
+impl<Validity: Slice<Element = bool>, S: Slice> PartialOrd<S> for OptionValiditySlice<Validity>
+where
+    S::Element: PartialOrd<bool>,
+{
+    fn partial_cmp(&self, other: &S) -> Option<Ordering> {
+        other.iter_cloned().partial_cmp(self.iter())
+    }
+}
+//
+impl<Validity: Slice<Element = bool>> Slice for OptionValiditySlice<Validity> {
+    type Element = bool;
+
+    #[inline]
+    fn is_consistent(&self) -> bool {
+        true
+    }
+
+    #[inline]
+    fn len(&self) -> usize {
+        match self {
+            Self::AllTrue(at) => at.len(),
+            Self::SomeFalse(sf) => sf.len(),
+        }
+    }
+
+    #[inline]
+    unsafe fn get_cloned_unchecked(&self, index: usize) -> bool {
+        match self {
+            Self::AllTrue(_) => true,
+            Self::SomeFalse(sf) => unsafe { sf.get_cloned_unchecked(index) },
+        }
+    }
+
+    #[inline]
+    fn iter_cloned(&self) -> impl Iterator<Item = bool> + '_ {
+        let head = if let Self::AllTrue(at) = self {
+            Some(at.iter_cloned())
+        } else {
+            None
+        };
+        let tail = if let Self::SomeFalse(sf) = self {
+            Some(sf.iter_cloned())
+        } else {
+            None
+        };
+        head.into_iter().flatten().chain(tail.into_iter().flatten())
+    }
+
+    #[inline]
+    fn split_at(&self, mid: usize) -> (Self, Self) {
+        match self {
+            Self::AllTrue(at) => {
+                let (head, tail) = at.split_at(mid);
+                (Self::AllTrue(head), Self::AllTrue(tail))
+            }
+            Self::SomeFalse(sf) => {
+                let (head, tail) = sf.split_at(mid);
+                (Self::SomeFalse(head), Self::SomeFalse(tail))
+            }
+        }
+    }
+}
+
 // === Strong value types matching non-std Arrow DataTypes ===
 
 /// Date type representing the elapsed time since the UNIX epoch in days
