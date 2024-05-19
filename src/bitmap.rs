@@ -3,6 +3,7 @@
 use crate::element::Slice;
 use std::{
     cmp::Ordering,
+    fmt::Debug,
     hash::{Hash, Hasher},
     iter::{FusedIterator, Take},
 };
@@ -116,7 +117,7 @@ impl Slice for Bitmap<'_> {
         self.raw.get_unchecked(bit / 8) & (1 << (bit % 8)) != 0
     }
 
-    fn iter_cloned(&self) -> impl Iterator<Item = bool> + '_ {
+    fn iter_cloned(&self) -> impl Iterator<Item = bool> + Clone + Debug + '_ {
         let mut bytes = self.raw.iter();
         let current_byte = bytes.next().copied();
         (Bits {

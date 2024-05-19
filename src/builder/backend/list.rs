@@ -5,7 +5,11 @@ use crate::{
     bitmap::Bitmap,
     builder::BuilderConfig,
     element::{
-        list::{List, ListWriteSlice, OptionListWriteSlice},
+        list::{
+            List, ListReadSlice, ListSlice, ListWriteSlice, OffsetSublists, OptionListReadSlice,
+            OptionListWriteSlice,
+        },
+        option::OptionSlice,
         ArrayElement, Slice,
     },
 };
@@ -32,7 +36,7 @@ impl<OffsetSize: OffsetSizeTrait, T: ArrayBuilder + Debug> Backend
 
     type ValiditySlice<'a> = Bitmap<'a>;
 
-    fn validity_slice(&self) -> Option<Self::ValiditySlice<'_>> {
+    fn option_validity_slice(&self) -> Option<Self::ValiditySlice<'_>> {
         self.validity_slice()
             .map(|validity| Bitmap::new(validity, self.len()))
     }
@@ -167,6 +171,13 @@ impl<OffsetSize: OffsetSizeTrait, Item: ArrayElement> TypedBackend<List<Item, Of
         }
         Ok(())
     }
+
+    fn as_slice(&self) -> ListReadSlice<'_, Item, OffsetSize> {
+        ListSlice {
+            items: self.values_ref().as_slice(),
+            lists: OffsetSublists::new(self.offsets_slice(), self.values_ref().len()),
+        }
+    }
 }
 
 impl<OffsetSize: OffsetSizeTrait, Item: ArrayElement> TypedBackend<Option<List<Item, OffsetSize>>>
@@ -194,6 +205,16 @@ impl<OffsetSize: OffsetSizeTrait, Item: ArrayElement> TypedBackend<Option<List<I
             <Self as TypedBackend<Option<List<Item, OffsetSize>>>>::push(self, sublist);
         }
         Ok(())
+    }
+
+    fn as_slice(&self) -> OptionListReadSlice<'_, Item, OffsetSize> {
+        ListSlice {
+            items: self.values_ref().as_slice(),
+            lists: OptionSlice {
+                is_valid: self.optimized_validity_slice(),
+                values: OffsetSublists::new(self.offsets_slice(), self.values_ref().len()),
+            },
+        }
     }
 }
 

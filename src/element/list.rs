@@ -10,6 +10,7 @@ use std::{fmt::Debug, hash::Hash, marker::PhantomData};
 
 use super::{
     option::{OptionSlice, OptionalElement},
+    primitive::OptimizedValiditySlice,
     Value,
 };
 
@@ -122,7 +123,7 @@ impl<Items: Slice, Lists: SublistSlice> Slice for ListSlice<Items, Lists> {
         }
     }
 
-    fn iter_cloned(&self) -> impl Iterator<Item = Self::Element> + '_ {
+    fn iter_cloned(&self) -> impl Iterator<Item = Self::Element> + Clone + Debug + '_ {
         debug_assert!(self.is_consistent());
         let mut remaining = self.items;
         self.lists.iter_sublists().map(move |sublist| {
@@ -190,7 +191,7 @@ pub trait SublistSlice: Slice {
     }
 
     /// Iterate over the sublists
-    fn iter_sublists(&self) -> impl Iterator<Item = Self::Sublist>;
+    fn iter_sublists(&self) -> impl Iterator<Item = Self::Sublist> + Clone + Debug + '_;
 }
 
 /// Sublist within [`ListSlice::items`]
@@ -313,7 +314,7 @@ impl SublistSlice for &[usize] {
         }
     }
 
-    fn iter_sublists(&self) -> impl Iterator<Item = ValidSublist> {
+    fn iter_sublists(&self) -> impl Iterator<Item = ValidSublist> + Clone + Debug + '_ {
         let mut offset = 0;
         self.iter().map(move |&len| {
             let result = ValidSublist { offset, len };
@@ -351,7 +352,7 @@ impl SublistSlice for &[Option<usize>] {
         }
     }
 
-    fn iter_sublists(&self) -> impl Iterator<Item = OptionSublist> {
+    fn iter_sublists(&self) -> impl Iterator<Item = OptionSublist> + Clone + Debug + '_ {
         let mut offset = 0;
         self.iter().map(move |&len| {
             let result = OptionSublist::from_option_len(offset, len);
@@ -387,7 +388,15 @@ pub struct OffsetSublists<'a, OffsetSize: OffsetSizeTrait> {
     total_len: usize,
 }
 //
-impl<OffsetSize: OffsetSizeTrait> OffsetSublists<'_, OffsetSize> {
+impl<'a, OffsetSize: OffsetSizeTrait> OffsetSublists<'a, OffsetSize> {
+    /// Build from an arrow offslet slice and a total number of items
+    pub(crate) fn new(offsets: &'a [OffsetSize], total_items: usize) -> Self {
+        Self {
+            original_offsets: offsets,
+            total_len: total_items,
+        }
+    }
+
     /// Corrective factor to be applied to each offset in original_offset
     fn offset_shift(&self) -> usize {
         self.original_offsets
@@ -446,7 +455,7 @@ impl<OffsetSize: OffsetSizeTrait> Slice for OffsetSublists<'_, OffsetSize> {
         }
     }
 
-    fn iter_cloned(&self) -> impl Iterator<Item = ValidSublist> + '_ {
+    fn iter_cloned(&self) -> impl Iterator<Item = ValidSublist> + Clone + Debug + '_ {
         debug_assert!(self.is_consistent());
         let offset_shift = self.offset_shift();
         (self.original_offsets.windows(2))
@@ -500,7 +509,7 @@ impl<OffsetSize: OffsetSizeTrait> SublistSlice for OffsetSublists<'_, OffsetSize
     }
 
     #[inline]
-    fn iter_sublists(&self) -> impl Iterator<Item = ValidSublist> {
+    fn iter_sublists(&self) -> impl Iterator<Item = ValidSublist> + Clone + Debug + '_ {
         self.iter_cloned()
     }
 }
@@ -514,7 +523,7 @@ pub type OptionLargeListReadSlice<'a, Item> = OptionListReadSlice<'a, Item, i64>
 //
 /// Slice of optional sublists in the native offset-based Arrow format
 pub type OptionOffsetSublists<'a, OffsetSize> =
-    OptionSlice<OffsetSublists<'a, OffsetSize>, Bitmap<'a>>;
+    OptionSlice<OffsetSublists<'a, OffsetSize>, OptimizedValiditySlice<Bitmap<'a>>>;
 //
 impl<OffsetSize: OffsetSizeTrait> SublistSlice for OptionOffsetSublists<'_, OffsetSize> {
     type Sublist = OptionSublist;
@@ -536,7 +545,7 @@ impl<OffsetSize: OffsetSizeTrait> SublistSlice for OptionOffsetSublists<'_, Offs
         }
     }
 
-    fn iter_sublists(&self) -> impl Iterator<Item = OptionSublist> {
+    fn iter_sublists(&self) -> impl Iterator<Item = OptionSublist> + Clone + Debug + '_ {
         debug_assert!(self.is_consistent());
         self.values
             .iter_sublists()

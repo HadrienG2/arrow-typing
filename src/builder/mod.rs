@@ -1,22 +1,17 @@
 //! Strongly typed array builder
 
 pub(crate) mod backend;
+mod config;
 
-use std::fmt::{self, Debug, Formatter};
-
-use self::backend::{list::ListConfig, Backend, Capacity, NoAlternateConfig, TypedBackend};
+use self::backend::{Backend, Capacity, TypedBackend};
+#[cfg(doc)]
+use crate::element::option::OptionSlice;
 use crate::element::{
-    list::ListLike,
     option::{NullableElement, OptionalElement},
-    primitive::OptimizedValiditySlice,
     ArrayElement,
 };
-#[cfg(doc)]
-use crate::{
-    bitmap::Bitmap,
-    element::{option::OptionSlice, primitive::PrimitiveType},
-};
 use arrow_array::builder::ArrayBuilder;
+use std::fmt::Debug;
 
 /// Builder for an array whose elements are of type `T`
 #[derive(Debug)]
@@ -230,60 +225,24 @@ impl<T: ArrayElement> TypedBuilder<T> {
 
     // FIXME: Some equivalent of ArrayBuilder::finish() and finish_cloned that
     //        returns a TypedArrayRef
-}
-//
-impl<T: OptionalElement> TypedBuilder<Option<T>>
-where
-    // TODO: Remove bound once it becomes redundant with OptionalElement
-    Option<T>: ArrayElement,
-{
-    /// Current null buffer / validity slice
+
+    /// Access the array elements that were inserted so far as a slice
     ///
     /// ```rust
     /// # use arrow_typing::{TypedBuilder, element::option::OptionSlice};
     /// let mut builder = TypedBuilder::<Option<f32>>::new();
-    /// let validity: &[bool] = &[true, false, true];
     /// builder.extend_from_slice(OptionSlice {
-    ///     values: &[
-    ///         1.2,
-    ///         3.4,
-    ///         5.6,
-    ///     ],
-    ///     is_valid: validity
+    ///     values: &[1.2, 3.4, 5.6],
+    ///     is_valid: &[true, false, true],
     /// })?;
     /// assert_eq!(
-    ///     builder.validity_slice(), validity
+    ///     builder.as_slice(),
+    ///     [Some(1.2), None, Some(5.6)].as_slice(),
     /// );
     /// # Ok::<_, anyhow::Error>(())
     /// ```
-    pub fn validity_slice(&self) -> OptimizedValiditySlice<T::ValiditySlice<'_>> {
-        // TODO: This unsafe code is made necessary by the fast that the Rust
-        //       trait system is not yet powerful enough to let us assert that
-        //       T::ValiditySlice is the same type as
-        //       BuilderBackend<Option<T>>::ValiditySlice. Once this changes,
-        //       add the proper bound in the right place and replace this code
-        //       with the simple `let validity = self.0.validity_slice()` that
-        //       it should be.
-        // SAFETY: The transmute is safe because the OptionalElement safety
-        //         contract lets us assume that T::ValiditySlice is the same
-        //         type as BuilderBackend<T>::ValiditySlice.
-        #[allow(forgetting_copy_types)]
-        let validity = unsafe {
-            type BackendSlice<'a, T> = <BuilderBackend<Option<T>> as Backend>::ValiditySlice<'a>;
-            type ElementSlice<'a, T> = <T as OptionalElement>::ValiditySlice<'a>;
-            debug_assert_eq!(
-                std::mem::size_of::<BackendSlice<'_, T>>(),
-                std::mem::size_of::<ElementSlice<'_, T>>(),
-                "Should be true if OptionalElement is implemented correctly"
-            );
-            self.0.validity_slice().map(|validity| {
-                let result =
-                    std::mem::transmute_copy::<BackendSlice<'_, T>, ElementSlice<'_, T>>(&validity);
-                std::mem::forget(validity);
-                result
-            })
-        };
-        OptimizedValiditySlice::from_arrow(validity, self.0.len())
+    pub fn as_slice(&self) -> T::ReadSlice<'_> {
+        self.0.as_slice()
     }
 }
 //
@@ -304,273 +263,8 @@ impl<'a, T: ArrayElement> Extend<T::WriteValue<'a>> for TypedBuilder<T> {
     }
 }
 
-/// Configuration needed to construct a [`TypedBuilder`]
-pub enum BuilderConfig<T: ArrayElement> {
-    /// Configuration for the standard new/with_capacity constructor
-    #[doc(hidden)]
-    Standard {
-        /// Minimal number of elements this builder can accept without reallocating
-        capacity: Option<usize>,
-
-        /// Backend-specific configuration
-        extra: BackendExtraConfig<T>,
-    },
-
-    /// Configuration for alternate constructors, if available
-    #[doc(hidden)]
-    Alternate(BackendAlternateConfig<T>),
-}
-//
-/// The following constructors are available for simple array element types like
-/// primitive types, where there is an obvious default builder configuration.
-///
-/// More complex element types that do not have an obvious default configuration
-/// (e.g. fixed-sized lists of dynamically defined extent) will need to be
-/// configured using one of the other constructors.
-impl<T: ArrayElement> BuilderConfig<T>
-where
-    BackendExtraConfig<T>: Default,
-{
-    /// Configure a builder with its default configuration
-    ///
-    /// ```rust
-    /// # use arrow_typing::{BuilderConfig, TypedBuilder};
-    /// // The following two declarations are equivalent
-    /// let builder1 = TypedBuilder::<f32>::new();
-    /// let builder2 = TypedBuilder::<f32>::with_config(
-    ///     BuilderConfig::new()
-    /// );
-    /// ```
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Configure a builder with space for at least `capacity` elements
-    ///
-    /// ```rust
-    /// # use arrow_typing::{BuilderConfig, TypedBuilder};
-    /// // The following two declarations are equivalent
-    /// let builder1 = TypedBuilder::<u8>::with_capacity(123);
-    /// let builder2 = TypedBuilder::<u8>::with_config(
-    ///     BuilderConfig::with_capacity(123)
-    /// );
-    /// ```
-    pub fn with_capacity(capacity: usize) -> Self {
-        Self::Standard {
-            capacity: Some(capacity),
-            extra: Default::default(),
-        }
-    }
-}
-//
-/// The following methods are available on `BuilderConfig<List<T, _>>` and
-/// `BuilderConfig<Option<List<T, _>>>`.
-impl<List: ListLike> BuilderConfig<List>
-where
-    // TODO: Remove bound once ListLike trait can be made more specific
-    List::BuilderBackend: TypedBackend<
-        List,
-        ExtraConfig = ListConfig<List::Item>,
-        AlternateConfig = NoAlternateConfig,
-    >,
-{
-    /// Configure a builder for an array of lists
-    ///
-    /// This method is meant be used as an alternative to
-    /// `new()`/`with_capacity()` when either of the following is true:
-    ///
-    /// - The list item type does not have a default configuration (e.g. this is
-    ///   a list of tuples or a list of fixed-size lists), and thus the easy
-    ///   `new()` and `with_capacity()` constructors are unavailable.
-    /// - You do not want to use the default configuration of the item type
-    ///   (e.g. you want the inner array of items to have a certain capacity in
-    ///   order to avoid reallocations when list items are pushed).
-    ///
-    /// The `capacity` argument can be used to set the list builder's capacity,
-    /// i.e. the minimal number of lists that can be pushed without an offset
-    /// buffer reallocation. When it is set to `None` this constructor behaves
-    /// like `new()`, and when it is set to `Some(capacity)` this constructor
-    /// behaves like `with_capacity()`.
-    ///
-    /// The `item_config` argument is used to configure the inner
-    /// `TypedBuilder<List::Item>` on top of which the `TypedBuilder<List>` is
-    /// built.
-    ///
-    /// ```rust
-    /// # use arrow_typing::{BuilderConfig, TypedBuilder, element::list::List};
-    /// // Configure an array of optional lists of booleans with storage for
-    /// // 42 lists and a total of 666 boolean items across all lists.
-    /// let item_config = BuilderConfig::with_capacity(666);
-    /// let list_config = BuilderConfig::new_list(Some(42), item_config);
-    /// let mut list_builder: TypedBuilder<Option<List<bool>>> =
-    ///     TypedBuilder::with_config(list_config);
-    /// ```
-    pub fn new_list(capacity: Option<usize>, item_config: BuilderConfig<List::Item>) -> Self {
-        Self::Standard {
-            capacity,
-            extra: ListConfig {
-                item_name: None,
-                item_config,
-            },
-        }
-    }
-
-    /// Set the name of the list array's item field
-    ///
-    /// By default, list items get the conventional field name "item".
-    ///
-    /// ```rust
-    /// # use arrow_typing::{BuilderConfig, element::{list::List, primitive::Null}};
-    /// let list_config: BuilderConfig<List<Null>> =
-    ///     BuilderConfig::new().with_item_name("null_item");
-    /// ```
-    pub fn with_item_name(self, item_name: impl ToString) -> Self {
-        let Self::Standard {
-            capacity,
-            mut extra,
-        } = self
-        else {
-            unreachable!()
-        };
-        extra.item_name = Some(item_name.to_string());
-        Self::Standard { capacity, extra }
-    }
-}
-//
-impl<T: ArrayElement> BuilderConfig<T> {
-    /// Expected capacity of an array builder made using this configuration
-    ///
-    /// In the case of types that are internally stored as multiple columnar
-    /// buffers, like tuples, a lower bound on the capacity of all underlying
-    /// columns is returned.
-    //
-    // FIXME: Example once tuples available
-    ///
-    /// In the case of lists, capacity should be understood as the number of
-    /// lists that can be pushed without reallocating _assuming enough capacity
-    /// to store all items in the inner items builder_.
-    ///
-    /// ```rust
-    /// # use arrow_typing::{TypedBuilder, BuilderConfig};
-    /// #
-    /// let requested_capacity = 987;
-    /// let config = BuilderConfig::with_capacity(requested_capacity);
-    /// assert_eq!(config.capacity(), requested_capacity);
-    ///
-    /// let builder = TypedBuilder::<i64>::with_config(config);
-    /// assert!(builder.capacity() >= requested_capacity);
-    /// ```
-    pub fn capacity(&self) -> usize {
-        match self {
-            Self::Standard { capacity, .. } => capacity.unwrap_or(0),
-            Self::Alternate(alt) => alt.capacity(),
-        }
-    }
-
-    /// Cast between compatible configuration types
-    ///
-    /// Configuration types are compatible when they contain the same
-    /// information. The following configuration types are compatible today and
-    /// guaranteed to remain compatible in the future:
-    ///
-    /// - `BuilderConfig<T>` and `BuilderConfig<Option<T>>` for any array
-    ///   element type `T` other than `Null`.
-    ///
-    /// Other configuration types may be "accidentally" compatible at present
-    /// time, but are not guaranteed to remain compatible throughout future
-    /// releases of `arrow-rs`. Therefore, do not rely on any configuration cast
-    /// other than the aforementioned ones.
-    ///
-    /// ```rust
-    /// # use arrow_typing::BuilderConfig;
-    /// let value_config: BuilderConfig<bool> = BuilderConfig::new();
-    /// let option_config: BuilderConfig<Option<bool>> = value_config.cast();
-    /// ```
-    pub fn cast<U: ArrayElement>(self) -> BuilderConfig<U>
-    where
-        U::BuilderBackend: TypedBackend<
-            U,
-            ExtraConfig = BackendExtraConfig<T>,
-            AlternateConfig = BackendAlternateConfig<T>,
-        >,
-    {
-        match self {
-            Self::Standard { capacity, extra } => BuilderConfig::Standard { capacity, extra },
-            Self::Alternate(alt) => BuilderConfig::Alternate(alt),
-        }
-    }
-}
-//
-impl<T: ArrayElement> Clone for BuilderConfig<T>
-where
-    BackendExtraConfig<T>: Clone,
-    BackendAlternateConfig<T>: Clone,
-{
-    fn clone(&self) -> Self {
-        match self {
-            Self::Standard { capacity, extra } => Self::Standard {
-                capacity: *capacity,
-                extra: extra.clone(),
-            },
-            Self::Alternate(alternate) => Self::Alternate(alternate.clone()),
-        }
-    }
-}
-//
-impl<T: ArrayElement> Copy for BuilderConfig<T>
-where
-    BackendExtraConfig<T>: Copy,
-    BackendAlternateConfig<T>: Copy,
-{
-}
-//
-impl<T: ArrayElement> Debug for BuilderConfig<T> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Standard { capacity, extra } => f
-                .debug_struct("BuilderConfig::Standard")
-                .field("capacity", &capacity)
-                .field("extra", &extra)
-                .finish(),
-            Self::Alternate(alternate) => f
-                .debug_tuple("BuilderConfig::Alternate")
-                .field(&alternate)
-                .finish(),
-        }
-    }
-}
-//
-impl<T: ArrayElement> Default for BuilderConfig<T>
-where
-    BackendExtraConfig<T>: Default,
-{
-    fn default() -> Self {
-        Self::Standard {
-            capacity: None,
-            extra: Default::default(),
-        }
-    }
-}
-//
-impl<T: ArrayElement> PartialEq for BuilderConfig<T> {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (
-                Self::Standard {
-                    capacity: c1,
-                    extra: e1,
-                },
-                Self::Standard {
-                    capacity: c2,
-                    extra: e2,
-                },
-            ) => c1 == c2 && e1 == e2,
-            (Self::Alternate(a1), Self::Alternate(a2)) => a1 == a2,
-            (Self::Standard { .. }, Self::Alternate(_))
-            | (Self::Alternate(_), Self::Standard { .. }) => false,
-        }
-    }
-}
+// Re-export builder configuration
+pub use config::BuilderConfig;
 
 /// Shortcut to the arrow builder type used to construct an array of Ts
 type BuilderBackend<T> = <T as ArrayElement>::BuilderBackend;
@@ -589,22 +283,7 @@ mod tests {
     use arrow_schema::ArrowError;
     use proptest::{prelude::*, sample::SizeRange, test_runner::TestCaseResult};
 
-    /// Check the validity mask of a TypedBuilder that has the validity_slice()
-    /// extension
-    pub fn check_validity<T: OptionalElement>(
-        builder: &TypedBuilder<Option<T>>,
-        expected: &[bool],
-    ) -> TestCaseResult
-    where
-        Option<T>: ArrayElement,
-    {
-        prop_assert_eq!(builder.validity_slice(), expected);
-        Ok(())
-    }
-
     /// Check outcome of initializing a `TypedBuilder` with some capacity
-    ///
-    /// This does not work with `NullBuilder`, for which `len == capacity`
     pub fn check_init_with_capacity_outcome<T: ArrayElement>(
         builder: &TypedBuilder<T>,
         init_capacity: Option<usize>,
@@ -616,6 +295,7 @@ mod tests {
         }
         prop_assert_eq!(builder.len(), 0);
         prop_assert!(builder.is_empty());
+        prop_assert!(builder.as_slice().is_empty());
         // FIXME: Build and check final array once possible
         Ok(())
     }
@@ -680,51 +360,59 @@ mod tests {
     }
 
     /// Check outcome of inserting N values into a newly created TypedBuilder
-    ///
-    /// This does not work as expected on `TypedBuilder<Null>` because the
-    /// notion of length/capacity used by the underlying `NullBuilder` is weird.
-    pub fn check_extend_outcome(
-        builder: &TypedBuilder<impl ArrayElement>,
+    pub fn check_extend_outcome<'values, T: ArrayElement>(
+        builder: &TypedBuilder<T>,
         init_capacity: usize,
-        num_elements: usize,
+        values: impl Iterator<Item = T::WriteValue<'values>> + Clone,
+        mut values_eq: impl FnMut(T::ReadValue<'_>, T::WriteValue<'_>) -> bool,
     ) -> TestCaseResult {
+        let num_elements = values.clone().count();
         if let Some(capacity) = builder.0.capacity_opt() {
             prop_assert!(capacity >= init_capacity.max(num_elements));
         }
         prop_assert_eq!(builder.len(), num_elements);
         prop_assert_eq!(builder.is_empty(), num_elements == 0);
+        let slice = builder.as_slice();
+        prop_assert!(slice.is_consistent());
+        prop_assert_eq!(slice.len(), num_elements);
+        for (read, written) in slice.iter_cloned().zip(values) {
+            prop_assert!(values_eq(read, written));
+        }
         // FIXME: Build and check final array once possible
         Ok(())
+    }
+
+    /// Turn the values_eq parameter of check_extend_outcome into a comparison
+    /// of optional values
+    pub fn options_eq<T: OptionalElement>(
+        mut values_eq: impl FnMut(T::ReadValue<'_>, T::WriteValue<'_>) -> bool,
+    ) -> impl FnMut(
+        <Option<T> as ArrayElement>::ReadValue<'_>,
+        <Option<T> as ArrayElement>::WriteValue<'_>,
+    ) -> bool
+    where
+        // TODO: Remove these bounds once OptionalElement makes them implicit
+        Option<T>: ArrayElement,
+        for<'a> <Option<T> as ArrayElement>::ReadValue<'a>: Into<Option<T::ReadValue<'a>>>,
+        for<'a> <Option<T> as ArrayElement>::WriteValue<'a>: Into<Option<T::WriteValue<'a>>>,
+    {
+        move |opt_read, opt_written| match (opt_read.into(), opt_written.into()) {
+            (Some(read), Some(written)) => values_eq(read, written),
+            (None, None) => true,
+            (Some(_), None) | (None, Some(_)) => false,
+        }
     }
 
     /// Check outcome of pushing a value into a newly created TypedBuilder
     pub fn check_push<T: ArrayElement>(
         config: BuilderConfig<T>,
         value: T::WriteValue<'_>,
+        values_eq: impl FnMut(T::ReadValue<'_>, T::WriteValue<'_>) -> bool,
     ) -> TestCaseResult {
         let init_capacity = config.capacity();
         let mut builder = TypedBuilder::<T>::with_config(config);
         builder.push(value);
-        check_extend_outcome(&builder, init_capacity, 1)?;
-        Ok(())
-    }
-
-    /// Like `check_push`, but with `Option<T>` and validity bitmap checking
-    pub fn check_push_option<T: OptionalElement>(
-        config: BuilderConfig<Option<T>>,
-        value: Option<T>,
-    ) -> TestCaseResult
-    where
-        // TODO: Remove bound once it becomes redundant with OptionalElement
-        Option<T>: ArrayElement,
-        for<'a> Option<T>: Into<<Option<T> as ArrayElement>::WriteValue<'a>>,
-    {
-        let init_capacity = config.capacity();
-        let mut builder = TypedBuilder::<Option<T>>::with_config(config);
-        let valid = value.is_some();
-        builder.push(value.into());
-        check_extend_outcome(&builder, init_capacity, 1)?;
-        check_validity(&builder, &[valid])?;
+        check_extend_outcome(&builder, init_capacity, std::iter::once(value), values_eq)?;
         Ok(())
     }
 
@@ -733,6 +421,7 @@ mod tests {
     pub fn check_extend_from_values<T: OptionalElement>(
         make_config: impl Fn() -> BuilderConfig<T>,
         values: T::WriteSlice<'_>,
+        mut values_eq: impl FnMut(T::ReadValue<'_>, T::WriteValue<'_>) -> bool,
     ) -> TestCaseResult
     where
         // TODO: Remove bound once it becomes redundant with OptionalElement
@@ -743,33 +432,54 @@ mod tests {
             AlternateConfig = BackendAlternateConfig<T>,
         >,
         for<'a> T::WriteValue<'a>: Clone + Into<<Option<T> as ArrayElement>::WriteValue<'a>>,
+        for<'a> <Option<T> as ArrayElement>::ReadValue<'a>: Into<Option<T::ReadValue<'a>>>,
+        for<'a> <Option<T> as ArrayElement>::WriteValue<'a>: Into<Option<T::WriteValue<'a>>>,
     {
         let init_capacity = make_config().capacity();
         let make_value_builder = || TypedBuilder::<T>::with_config(make_config());
         {
             let mut value_builder = make_value_builder();
             value_builder.extend_from_slice(values);
-            check_extend_outcome(&value_builder, init_capacity, values.len())?;
+            check_extend_outcome(
+                &value_builder,
+                init_capacity,
+                values.iter_cloned(),
+                &mut values_eq,
+            )?;
         }
         {
             let mut value_builder = make_value_builder();
             value_builder.extend(values.iter_cloned());
-            check_extend_outcome(&value_builder, init_capacity, values.len())?;
+            check_extend_outcome(
+                &value_builder,
+                init_capacity,
+                values.iter_cloned(),
+                &mut values_eq,
+            )?;
         }
 
         let make_opt_builder =
             || TypedBuilder::<Option<T>>::with_config(make_config().cast::<Option<T>>());
+        let mut options_eq = options_eq(values_eq);
         {
             let mut opt_builder = make_opt_builder();
             opt_builder.extend_from_value_slice(values);
-            check_extend_outcome(&opt_builder, init_capacity, values.len())?;
-            check_validity(&opt_builder, &vec![true; values.len()])?;
+            check_extend_outcome(
+                &opt_builder,
+                init_capacity,
+                values.iter_cloned().map(Into::into),
+                &mut options_eq,
+            )?;
         }
         {
             let mut opt_builder = make_opt_builder();
             opt_builder.extend(values.iter_cloned().map(Into::into));
-            check_extend_outcome(&opt_builder, init_capacity, values.len())?;
-            check_validity(&opt_builder, &vec![true; values.len()])?;
+            check_extend_outcome(
+                &opt_builder,
+                init_capacity,
+                values.iter_cloned().map(Into::into),
+                &mut options_eq,
+            )?;
         }
         Ok(())
     }
@@ -811,11 +521,15 @@ mod tests {
     pub fn check_extend_from_options<T: OptionalElement>(
         config: BuilderConfig<Option<T>>,
         slice: OptionWriteSlice<T>,
+        values_eq: impl FnMut(T::ReadValue<'_>, T::WriteValue<'_>) -> bool,
     ) -> TestCaseResult
     where
         // TODO: Remove bound once it becomes redundant with OptionalElement
         Option<T>: ArrayElement<ExtendFromSliceResult = Result<(), ArrowError>>,
         for<'a> OptionWriteSlice<'a, T>: Into<<Option<T> as ArrayElement>::WriteSlice<'a>>,
+        for<'a> Option<T::WriteValue<'a>>: Into<<Option<T> as ArrayElement>::WriteValue<'a>>,
+        for<'a> <Option<T> as ArrayElement>::ReadValue<'a>: Into<Option<T::ReadValue<'a>>>,
+        for<'a> <Option<T> as ArrayElement>::WriteValue<'a>: Into<Option<T::WriteValue<'a>>>,
     {
         let init_capacity = config.capacity();
         let mut builder = TypedBuilder::<Option<T>>::with_config(config);
@@ -828,8 +542,12 @@ mod tests {
         }
 
         prop_assert!(result.is_ok());
-        check_extend_outcome(&builder, init_capacity, slice.values.len())?;
-        check_validity(&builder, slice.is_valid)?;
+        check_extend_outcome(
+            &builder,
+            init_capacity,
+            slice.iter_cloned().map(Into::into),
+            options_eq(values_eq),
+        )?;
         Ok(())
     }
 
@@ -837,16 +555,24 @@ mod tests {
     pub fn check_extend_with_nulls<T: OptionalElement>(
         config: BuilderConfig<Option<T>>,
         num_nulls: usize,
+        values_eq: impl FnMut(T::ReadValue<'_>, T::WriteValue<'_>) -> bool,
     ) -> TestCaseResult
     where
         // TODO: Remove bound once it becomes redundant with OptionalElement
         Option<T>: ArrayElement,
+        for<'a> Option<T::WriteValue<'a>>: Into<<Option<T> as ArrayElement>::WriteValue<'a>>,
+        for<'a> <Option<T> as ArrayElement>::ReadValue<'a>: Into<Option<T::ReadValue<'a>>>,
+        for<'a> <Option<T> as ArrayElement>::WriteValue<'a>: Into<Option<T::WriteValue<'a>>>,
     {
         let init_capacity = config.capacity();
         let mut builder = TypedBuilder::<Option<T>>::with_config(config);
         builder.extend_with_nulls(num_nulls);
-        check_extend_outcome(&builder, init_capacity, num_nulls)?;
-        check_validity(&builder, &vec![false; num_nulls])?;
+        check_extend_outcome(
+            &builder,
+            init_capacity,
+            std::iter::repeat(None).take(num_nulls).map(Into::into),
+            options_eq(values_eq),
+        )?;
         Ok(())
     }
 }

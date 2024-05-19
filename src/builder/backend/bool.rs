@@ -1,7 +1,11 @@
 //! Strong typing layer on top of [`BooleanBuilder`]
 
 use super::{Backend, Capacity, NoAlternateConfig, TypedBackend};
-use crate::{bitmap::Bitmap, builder::BuilderConfig, element::option::OptionWriteSlice};
+use crate::{
+    bitmap::Bitmap,
+    builder::BuilderConfig,
+    element::option::{OptionReadSlice, OptionSlice, OptionWriteSlice},
+};
 use arrow_array::builder::{ArrayBuilder, BooleanBuilder};
 use arrow_schema::{ArrowError, DataType, Field};
 
@@ -17,7 +21,7 @@ impl Backend for BooleanBuilder {
 
     type ValiditySlice<'a> = Bitmap<'a>;
 
-    fn validity_slice(&self) -> Option<Self::ValiditySlice<'_>> {
+    fn option_validity_slice(&self) -> Option<Self::ValiditySlice<'_>> {
         self.validity_slice()
             .map(|validity| Bitmap::new(validity, self.len()))
     }
@@ -67,6 +71,10 @@ impl TypedBackend<bool> for BooleanBuilder {
     fn extend_from_slice(&mut self, s: &[bool]) {
         self.append_slice(s)
     }
+
+    fn as_slice(&self) -> Bitmap<'_> {
+        Bitmap::new(self.values_slice(), self.len())
+    }
 }
 
 impl TypedBackend<Option<bool>> for BooleanBuilder {
@@ -80,6 +88,13 @@ impl TypedBackend<Option<bool>> for BooleanBuilder {
     fn extend_from_slice(&mut self, slice: OptionWriteSlice<'_, bool>) -> Result<(), ArrowError> {
         self.append_values(slice.values, slice.is_valid)
     }
+
+    fn as_slice(&self) -> OptionReadSlice<'_, bool> {
+        OptionSlice {
+            is_valid: self.optimized_validity_slice(),
+            values: <Self as TypedBackend<bool>>::as_slice(self),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -87,14 +102,18 @@ mod tests {
     use crate::{
         builder::tests::{
             check_extend_from_options, check_extend_from_values, check_extend_with_nulls,
-            check_init_default_optional, check_init_with_capacity_optional, check_push,
-            check_push_option, option_vec,
+            check_init_default_optional, check_init_with_capacity_optional, check_push, option_vec,
+            options_eq,
         },
         element::option::OptionSlice,
         tests::length_or_capacity,
         BuilderConfig,
     };
     use proptest::{prelude::*, test_runner::TestCaseResult};
+
+    fn eq(x: bool, y: bool) -> bool {
+        x == y
+    }
 
     #[test]
     fn init_default() -> TestCaseResult {
@@ -104,24 +123,36 @@ mod tests {
     proptest! {
         #[test]
         fn init_with_capacity(capacity in length_or_capacity()) {
-            check_init_with_capacity_optional::<bool>(|| (), capacity)?;
+            check_init_with_capacity_optional::<bool>(
+                || (),
+                capacity
+            )?;
         }
 
         #[test]
         fn push_value(init_capacity in length_or_capacity(), value: bool) {
-            check_push::<bool>(BuilderConfig::with_capacity(init_capacity), value)?;
+            check_push::<bool>(
+                BuilderConfig::with_capacity(init_capacity),
+                value,
+                eq
+            )?;
         }
 
         #[test]
         fn push_option(init_capacity in length_or_capacity(), value: Option<bool>) {
-            check_push_option::<bool>(BuilderConfig::with_capacity(init_capacity), value)?;
+            check_push::<Option<bool>>(
+                BuilderConfig::with_capacity(init_capacity),
+                value,
+                options_eq::<bool>(eq)
+            )?;
         }
 
         #[test]
         fn extend_from_values(init_capacity in length_or_capacity(), values: Vec<bool>) {
             check_extend_from_values::<bool>(
                 || BuilderConfig::with_capacity(init_capacity),
-                &values
+                &values,
+                eq
             )?;
         }
 
@@ -135,7 +166,8 @@ mod tests {
                 OptionSlice {
                     values: &values[..],
                     is_valid: &is_valid[..],
-                }
+                },
+                eq
             )?;
         }
 
@@ -144,7 +176,11 @@ mod tests {
             init_capacity in length_or_capacity(),
             num_nulls in length_or_capacity()
         ) {
-            check_extend_with_nulls::<bool>(BuilderConfig::with_capacity(init_capacity), num_nulls)?;
+            check_extend_with_nulls::<bool>(
+                BuilderConfig::with_capacity(init_capacity),
+                num_nulls,
+                eq
+            )?;
         }
     }
 }

@@ -1,9 +1,12 @@
 //! Arrays of optional values
 
-use super::{primitive::ConstBoolSlice, ArrayElement, Slice};
+use super::{
+    primitive::{ConstBoolSlice, OptimizedValiditySlice},
+    ArrayElement, Slice,
+};
+use crate::element::primitive::Null;
 #[cfg(doc)]
-use crate::builder::TypedBuilder;
-use crate::{bitmap::Bitmap, element::primitive::Null};
+use crate::{bitmap::Bitmap, builder::TypedBuilder};
 use std::fmt::Debug;
 
 /// [`ArrayElement`] which has a null value
@@ -139,7 +142,7 @@ impl<Values: Slice, Validity: Slice<Element = bool>> Slice for OptionSlice<Value
         }
     }
 
-    fn iter_cloned(&self) -> impl Iterator<Item = Self::Element> + '_ {
+    fn iter_cloned(&self) -> impl Iterator<Item = Self::Element> + Clone + Debug + '_ {
         debug_assert!(self.is_consistent());
         self.values
             .iter_cloned()
@@ -175,5 +178,8 @@ pub type OptionWriteSlice<'a, T> = OptionSlice<<T as ArrayElement>::WriteSlice<'
 ///
 /// Follows Arrow's internal storage format to allow for in-place data access,
 /// which means using a [`ReadSlice`](ArrayElement::ReadSlice) of `T` for
-/// bulk-readout and a [`Bitmap`] for validity tracking.
-pub type OptionReadSlice<'a, T> = OptionSlice<<T as ArrayElement>::ReadSlice<'a>, Bitmap<'a>>;
+/// bulk-readout and an [`OptimizedValiditySlice`] for validity tracking.
+pub type OptionReadSlice<'a, T> = OptionSlice<
+    <T as ArrayElement>::ReadSlice<'a>,
+    OptimizedValiditySlice<<T as OptionalElement>::ValiditySlice<'a>>,
+>;

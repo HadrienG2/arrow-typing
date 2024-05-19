@@ -35,7 +35,7 @@ unsafe impl ArrayElement for bool {
     type WriteValue<'a> = Self;
     type ReadValue<'a> = Self;
     type WriteSlice<'a> = &'a [Self];
-    type ReadSlice<'a> = &'a [Self];
+    type ReadSlice<'a> = Bitmap<'a>;
     type ExtendFromSliceResult = ();
 }
 //
@@ -101,7 +101,7 @@ impl<T: Value> Slice for UniformSlice<T> {
         self.element
     }
 
-    fn iter_cloned(&self) -> impl Iterator<Item = Self::Element> + '_ {
+    fn iter_cloned(&self) -> impl Iterator<Item = Self::Element> + Clone + Debug + '_ {
         std::iter::repeat(self.element).take(self.len)
     }
 
@@ -173,7 +173,7 @@ impl<const ELEMENT: bool> Slice for ConstBoolSlice<ELEMENT> {
         ELEMENT
     }
 
-    fn iter_cloned(&self) -> impl Iterator<Item = bool> + '_ {
+    fn iter_cloned(&self) -> impl Iterator<Item = bool> + Clone + Debug + '_ {
         std::iter::repeat(ELEMENT).take(self.0)
     }
 
@@ -209,6 +209,16 @@ impl<Validity: Slice<Element = bool>> OptimizedValiditySlice<Validity> {
     }
 
     crate::inherent_slice_methods!(element: bool);
+
+    /// Cast inner validity slice into a compatible type
+    pub(crate) fn cast<OtherValidity: From<Validity> + Slice<Element = bool>>(
+        self,
+    ) -> OptimizedValiditySlice<OtherValidity> {
+        match self {
+            Self::AllTrue(at) => OptimizedValiditySlice::AllTrue(at),
+            Self::SomeFalse(sf) => OptimizedValiditySlice::SomeFalse(sf.into()),
+        }
+    }
 }
 //
 impl<Validity: Slice<Element = bool>> Default for OptimizedValiditySlice<Validity> {
@@ -260,7 +270,7 @@ impl<Validity: Slice<Element = bool>> Slice for OptimizedValiditySlice<Validity>
     }
 
     #[inline]
-    fn iter_cloned(&self) -> impl Iterator<Item = bool> + '_ {
+    fn iter_cloned(&self) -> impl Iterator<Item = bool> + Clone + Debug + '_ {
         let head = if let Self::AllTrue(at) = self {
             Some(at.iter_cloned())
         } else {
@@ -458,6 +468,17 @@ impl IntervalDayTime {
     pub fn to_parts(self) -> (i32, i32) {
         IntervalDayTimeType::to_parts(self.0)
     }
+
+    /// Make sure two intervals have the same binary representation
+    ///
+    /// Beware that this does _not_ imply that the two intervals have an equal
+    /// duration, because they may be constructed with respect to differing base
+    /// timestamps, and the duration of a day can vary throughout the year due
+    /// to things like daylight saving time and leap seconds.
+    #[inline]
+    pub fn bit_eq(self, other: Self) -> bool {
+        self.0 == other.0
+    }
 }
 //
 #[cfg(any(test, feature = "proptest"))]
@@ -505,6 +526,19 @@ impl IntervalMonthDayNano {
     #[inline]
     pub fn to_parts(self) -> (i32, i32, i64) {
         IntervalMonthDayNanoType::to_parts(self.0)
+    }
+
+    /// Make sure two intervals have the same binary representation
+    ///
+    /// Beware that this does _not_ imply that the two intervals have an equal
+    /// duration, because they may be constructed with respect to differing base
+    /// timestamps. The duration of a month varies throughout the year (e.g.
+    /// February is shorter than other months), and the duration of a day can
+    /// vary throughout the year as well due to things like daylight saving time
+    /// and leap seconds.
+    #[inline]
+    pub fn bit_eq(self, other: Self) -> bool {
+        self.0 == other.0
     }
 }
 //
@@ -555,6 +589,19 @@ impl IntervalYearMonth {
     #[inline]
     pub fn to_months(self) -> i32 {
         self.0
+    }
+
+    /// Make sure two intervals have the same binary representation
+    ///
+    /// Beware that this does _not_ imply that the two intervals have an equal
+    /// duration, because they may be constructed with respect to differing base
+    /// timestamps. The duration of a month varies throughout the year (e.g.
+    /// February is shorter than other months), and the duration of a year
+    /// varies as well depending on where the base year is located with respect
+    /// to the closest leap year.
+    #[inline]
+    pub fn bit_eq(self, other: Self) -> bool {
+        self.0 == other.0
     }
 }
 //
@@ -721,7 +768,7 @@ pub unsafe trait PrimitiveType:
     //       ArrayElement<XyzValue<'_> = Self, XyzSlice<'_> = &[Self]> bound to
     //       simplify downstream usage and remove the unsafe contract of
     //       ArrayElement.
-    ArrayElement<BuilderBackend = PrimitiveBuilder<Self::Arrow>, ExtendFromSliceResult = ()> + Debug + From<NativeType<Self>> + Into<NativeType<Self>>
+    OptionalElement<BuilderBackend = PrimitiveBuilder<Self::Arrow>, ExtendFromSliceResult = ()> + Debug + From<NativeType<Self>> + Into<NativeType<Self>>
 {
     /// Equivalent Arrow primitive type
     type Arrow: ArrowPrimitiveType + Debug;

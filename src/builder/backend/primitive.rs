@@ -5,7 +5,7 @@ use crate::{
     bitmap::Bitmap,
     builder::BuilderConfig,
     element::{
-        option::OptionWriteSlice,
+        option::{OptionReadSlice, OptionSlice, OptionWriteSlice, OptionalElement},
         primitive::{NativeType, PrimitiveType},
         ArrayElement,
     },
@@ -29,7 +29,7 @@ impl<T: ArrowPrimitiveType + Debug> Backend for PrimitiveBuilder<T> {
 
     type ValiditySlice<'a> = Bitmap<'a>;
 
-    fn validity_slice(&self) -> Option<Self::ValiditySlice<'_>> {
+    fn option_validity_slice(&self) -> Option<Self::ValiditySlice<'_>> {
         self.validity_slice()
             .map(|validity| Bitmap::new(validity, self.len()))
     }
@@ -92,6 +92,17 @@ where
             unsafe { std::mem::transmute_copy::<T::WriteSlice<'_>, &[NativeType<T>]>(&s) };
         self.append_slice(native_slice)
     }
+
+    fn as_slice(&self) -> T::ReadSlice<'_> {
+        // SAFETY: This transmute is safe because...
+        //         - T::ReadSlice is &[T] for all primitive types
+        //         - Primitive types are repr(transparent) wrappers over the
+        //           corresponding Arrow native types, so it is safe to
+        //           transmute &[NativeType<T>] into &[T].
+        unsafe {
+            std::mem::transmute_copy::<&[NativeType<T>], T::ReadSlice<'_>>(&self.values_slice())
+        }
+    }
 }
 
 impl<T: PrimitiveType> TypedBackend<Option<T>> for PrimitiveBuilder<T::Arrow>
@@ -108,6 +119,8 @@ where
     Option<T>: ArrayElement<ExtendFromSliceResult = Result<(), ArrowError>>,
     for<'a> <Option<T> as ArrayElement>::WriteValue<'a>: Into<Option<T::WriteValue<'a>>>,
     for<'a> <Option<T> as ArrayElement>::WriteSlice<'a>: Into<OptionWriteSlice<'a, T>>,
+    for<'a> OptionReadSlice<'a, T>: Into<<Option<T> as ArrayElement>::ReadSlice<'a>>,
+    for<'a> <T as OptionalElement>::ValiditySlice<'a>: From<Bitmap<'a>>,
 {
     typed_backend_common!(Option<T>, true);
 
@@ -134,16 +147,26 @@ where
             ArrowError::InvalidArgumentError("value and validity lengths must be equal".to_string())
         })
     }
+
+    fn as_slice(&self) -> <Option<T> as ArrayElement>::ReadSlice<'_> {
+        let slice: OptionReadSlice<T> = OptionSlice {
+            is_valid: self.optimized_validity_slice().cast(),
+            values: <Self as TypedBackend<T>>::as_slice(self),
+        };
+        slice.into()
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::cmp::Ordering;
+
     use crate::{
         builder::{
             tests::{
                 check_extend_from_options, check_extend_from_values, check_extend_with_nulls,
                 check_init_default_optional, check_init_with_capacity_optional, check_push,
-                check_push_option, option_vec,
+                option_vec, options_eq,
             },
             BuilderConfig,
         },
@@ -159,12 +182,21 @@ mod tests {
     use proptest::{prelude::*, test_runner::TestCaseResult};
 
     macro_rules! test_primitives {
-        ($primitive: ident) => {
-            test_primitives!($primitive : $primitive);
+        ( $primitive:ident $( where eq = $eq:expr )? ) => {
+            test_primitives!( $primitive : $primitive $( where eq = $eq )? );
         };
-        ($mod_name:ident : $primitive:ty) => {
+        ( $mod_name:ident : $primitive:ty ) => {
+            test_primitives!(
+                $mod_name : $primitive where eq = |a: $primitive, b: $primitive| a == b
+            );
+        };
+        ( $mod_name:ident : $primitive:ty where eq = $eq:expr ) => {
             mod $mod_name {
                 use super::*;
+
+                fn eq(x: $primitive, y: $primitive) -> bool {
+                    ($eq)(x, y)
+                }
 
                 #[test]
                 fn init_default() -> TestCaseResult {
@@ -174,24 +206,36 @@ mod tests {
                 proptest! {
                     #[test]
                     fn init_with_capacity(capacity in length_or_capacity()) {
-                        check_init_with_capacity_optional::<$primitive>(|| (), capacity)?;
+                        check_init_with_capacity_optional::<$primitive>(
+                            || (),
+                            capacity
+                        )?;
                     }
 
                     #[test]
                     fn push_value(init_capacity in length_or_capacity(), value: $primitive) {
-                        check_push::<$primitive>(BuilderConfig::with_capacity(init_capacity), value)?;
+                        check_push::<$primitive>(
+                            BuilderConfig::with_capacity(init_capacity),
+                            value,
+                            eq
+                        )?;
                     }
 
                     #[test]
                     fn push_option(init_capacity in length_or_capacity(), value: Option<$primitive>) {
-                        check_push_option::<$primitive>(BuilderConfig::with_capacity(init_capacity), value)?;
+                        check_push::<Option<$primitive>>(
+                            BuilderConfig::with_capacity(init_capacity),
+                            value,
+                            options_eq::<$primitive>(eq)
+                        )?;
                     }
 
                     #[test]
                     fn extend_from_values(init_capacity in length_or_capacity(), values: Vec<$primitive>) {
                         check_extend_from_values::<$primitive>(
                             || BuilderConfig::with_capacity(init_capacity),
-                            &values
+                            &values,
+                            eq
                         )?;
                     }
 
@@ -205,7 +249,8 @@ mod tests {
                             OptionSlice {
                                 values: &values[..],
                                 is_valid: &is_valid[..],
-                            }
+                            },
+                            eq
                         )?;
                     }
 
@@ -214,13 +259,20 @@ mod tests {
                         init_capacity in length_or_capacity(),
                         num_nulls in length_or_capacity()
                     ) {
-                        check_extend_with_nulls::<$primitive>(BuilderConfig::with_capacity(init_capacity), num_nulls)?;
+                        check_extend_with_nulls::<$primitive>(
+                            BuilderConfig::with_capacity(init_capacity),
+                            num_nulls,
+                            eq
+                        )?;
                     }
                 }
             }
         };
-        ($( $mod_name:ident $(: $primitive:ty)? ),*) => {$(
-            test_primitives!($mod_name $(: $primitive)? );
+        ($(
+            $mod_name:ident $(: $primitive:ty)?
+                            $(where eq = $eq:expr)?
+        ),*) => {$(
+            test_primitives!( $mod_name $(: $primitive)? $(where eq = $eq)? );
         )*};
     }
     test_primitives!(
@@ -231,10 +283,12 @@ mod tests {
         duration_nanos: Duration<Nanosecond>,
         duration_secs: Duration<Second>,
         // TODO: Put f16 here once it implements Arbitrary
-        f32, f64, i8, i16, i32, i64,
-        interval_day_time: IntervalDayTime,
-        interval_month_day_nano: IntervalMonthDayNano,
-        interval_year_month: IntervalYearMonth,
+        f32 where eq = |x: f32, y: f32| x.total_cmp(&y) == Ordering::Equal,
+        f64 where eq = |x: f64, y: f64| x.total_cmp(&y) == Ordering::Equal,
+        i8, i16, i32, i64,
+        interval_day_time: IntervalDayTime where eq = IntervalDayTime::bit_eq,
+        interval_month_day_nano: IntervalMonthDayNano where eq = IntervalMonthDayNano::bit_eq,
+        interval_year_month: IntervalYearMonth where eq = IntervalYearMonth::bit_eq,
         time_micros: Time<Microsecond>,
         time_millis: Time<Millisecond>,
         time_nanos: Time<Nanosecond>,
@@ -263,6 +317,10 @@ mod tests {
             prop::collection::vec(any_f16(), SizeRange::default())
         }
 
+        fn eq(x: f16, y: f16) -> bool {
+            x.total_cmp(&y) == Ordering::Equal
+        }
+
         #[test]
         fn init_default() -> TestCaseResult {
             check_init_default_optional::<f16>()
@@ -271,24 +329,36 @@ mod tests {
         proptest! {
             #[test]
             fn init_with_capacity(capacity in length_or_capacity()) {
-                check_init_with_capacity_optional::<f16>(|| (), capacity)?;
+                check_init_with_capacity_optional::<f16>(
+                    || (),
+                    capacity
+                )?;
             }
 
             #[test]
             fn push_value(init_capacity in length_or_capacity(), value in any_f16()) {
-                check_push::<f16>(BuilderConfig::with_capacity(init_capacity), value)?;
+                check_push::<f16>(
+                    BuilderConfig::with_capacity(init_capacity),
+                    value,
+                    eq,
+                )?;
             }
 
             #[test]
             fn push_option(init_capacity in length_or_capacity(), value in any_f16_opt()) {
-                check_push_option::<f16>(BuilderConfig::with_capacity(init_capacity), value)?;
+                check_push::<Option<f16>>(
+                    BuilderConfig::with_capacity(init_capacity),
+                    value,
+                    options_eq::<f16>(eq),
+                )?;
             }
 
             #[test]
             fn extend_from_values(init_capacity in length_or_capacity(), values in any_f16_vec()) {
                 check_extend_from_values::<f16>(
                     || BuilderConfig::with_capacity(init_capacity),
-                    &values
+                    &values,
+                    eq,
                 )?;
             }
 
@@ -302,7 +372,8 @@ mod tests {
                     OptionSlice {
                         values: &values[..],
                         is_valid: &is_valid[..],
-                    }
+                    },
+                    eq,
                 )?;
             }
 
@@ -311,7 +382,11 @@ mod tests {
                 init_capacity in length_or_capacity(),
                 num_nulls in length_or_capacity()
             ) {
-                check_extend_with_nulls::<f16>(BuilderConfig::with_capacity(init_capacity), num_nulls)?;
+                check_extend_with_nulls::<f16>(
+                    BuilderConfig::with_capacity(init_capacity),
+                    num_nulls,
+                    eq,
+                )?;
             }
         }
     }

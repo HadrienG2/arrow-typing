@@ -24,7 +24,7 @@ pub mod primitive;
 // with special cases.
 
 use super::BuilderConfig;
-use crate::element::{ArrayElement, Slice};
+use crate::element::{primitive::OptimizedValiditySlice, ArrayElement, Slice};
 use arrow_array::builder::ArrayBuilder;
 use arrow_schema::Field;
 use std::fmt::Debug;
@@ -54,6 +54,11 @@ pub trait TypedBackend<T: ArrayElement>: Backend {
 
     /// Append values into the builder in bulk
     fn extend_from_slice(&mut self, s: T::WriteSlice<'_>) -> T::ExtendFromSliceResult;
+
+    // TODO: finish() and finish_cloned() will go here
+
+    /// Access the inner slice of values
+    fn as_slice(&self) -> T::ReadSlice<'_>;
 }
 
 /// Best-effort buffer builder capacity query
@@ -104,6 +109,12 @@ pub trait Backend: ArrayBuilder + Debug {
     /// Null buffer representation for this builder
     type ValiditySlice<'a>: Slice<Element = bool> + Eq + PartialEq<&'a [bool]>;
 
-    /// Returns the current null buffer as a slice
-    fn validity_slice(&self) -> Option<Self::ValiditySlice<'_>>;
+    /// Returns the current null buffer as an optional slice, where None means
+    /// that all inner values are valid
+    fn option_validity_slice(&self) -> Option<Self::ValiditySlice<'_>>;
+
+    /// Returns the current null buffer as an [`OptimizedValiditySlice`]
+    fn optimized_validity_slice(&self) -> OptimizedValiditySlice<Self::ValiditySlice<'_>> {
+        OptimizedValiditySlice::from_arrow(self.option_validity_slice(), self.len())
+    }
 }

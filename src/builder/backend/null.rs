@@ -20,7 +20,7 @@ impl Backend for NullBuilder {
 
     type ValiditySlice<'a> = ConstBoolSlice<false>;
 
-    fn validity_slice(&self) -> Option<ConstBoolSlice<false>> {
+    fn option_validity_slice(&self) -> Option<ConstBoolSlice<false>> {
         Some(ConstBoolSlice::new(self.len()))
     }
 }
@@ -51,6 +51,10 @@ impl TypedBackend<Null> for NullBuilder {
     fn extend_from_slice(&mut self, s: UniformSlice<Null>) {
         self.append_nulls(s.len())
     }
+
+    fn as_slice(&self) -> UniformSlice<Null> {
+        UniformSlice::new(Null, self.len())
+    }
 }
 
 #[cfg(test)]
@@ -68,6 +72,10 @@ mod tests {
     };
     use proptest::{prelude::*, test_runner::TestCaseResult};
 
+    fn eq(_x: Null, _y: Null) -> bool {
+        true
+    }
+
     #[test]
     fn init_default() -> TestCaseResult {
         check_init_default::<Null>()
@@ -84,7 +92,11 @@ mod tests {
 
         #[test]
         fn push(init_capacity in length_or_capacity()) {
-            check_push::<Null>(BuilderConfig::with_capacity(init_capacity), Null)?;
+            check_push::<Null>(
+                BuilderConfig::with_capacity(init_capacity),
+                Null,
+                eq
+            )?;
         }
 
         #[test]
@@ -93,14 +105,25 @@ mod tests {
             num_nulls in length_or_capacity()
         ) {
             let make_builder = || TypedBuilder::<Null>::with_capacity(init_capacity);
+            let null_iter = std::iter::repeat(Null).take(num_nulls);
             {
                 let mut builder = make_builder();
                 builder.extend_from_slice(UniformSlice::new(Null, num_nulls));
-                check_extend_outcome(&builder, init_capacity, num_nulls)?;
+                check_extend_outcome(
+                    &builder,
+                    init_capacity,
+                    null_iter.clone(),
+                    eq
+                )?;
             }{
                 let mut builder = make_builder();
                 builder.extend_with_nulls(num_nulls);
-                check_extend_outcome(&builder, init_capacity, num_nulls)?;
+                check_extend_outcome(
+                    &builder,
+                    init_capacity,
+                    null_iter,
+                    eq
+                )?;
             }
         }
     }

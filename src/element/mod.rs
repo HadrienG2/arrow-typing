@@ -18,8 +18,8 @@ use std::fmt::Debug;
 /// # Safety
 ///
 /// When this trait is implemented on a type that also implements the
-/// [`PrimitiveType`] trait, its `WriteSlice` associated type must be set to
-/// `&[Self]`.
+/// [`PrimitiveType`] trait, its `WriteSlice` and `ReadSlice` associated types
+/// must both be set to `&[Self]`.
 pub unsafe trait ArrayElement: Debug + Sized {
     /// Array builder implementation
     #[doc(hidden)]
@@ -183,7 +183,7 @@ pub trait Slice: Value {
     }
 
     /// Iterate over copies of the elements of this slice
-    fn iter_cloned(&self) -> impl Iterator<Item = Self::Element> + '_;
+    fn iter_cloned(&self) -> impl Iterator<Item = Self::Element> + Clone + Debug + '_;
 
     /// Split the slice into two subslices at `mid`
     ///
@@ -211,7 +211,7 @@ impl<T: Value> Slice for &[T] {
         unsafe { *<[T]>::get_unchecked(self, index) }
     }
 
-    fn iter_cloned(&self) -> impl Iterator<Item = T> + '_ {
+    fn iter_cloned(&self) -> impl Iterator<Item = T> + Clone + Debug + '_ {
         <[T]>::iter(self).cloned()
     }
 
