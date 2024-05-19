@@ -95,7 +95,7 @@ pub unsafe trait ArrayElement: Debug + Sized {
     type ExtendFromSliceResult: Debug;
 }
 
-/// A value that can be stored in an Arrow array
+/// A value that can be read from or written into an Arrow array
 pub trait Value: Clone + Copy + Debug + Default + Send + Sized + Sync {}
 //
 impl<T: Clone + Copy + Debug + Default + Send + Sized + Sync> Value for T {}

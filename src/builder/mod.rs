@@ -295,7 +295,11 @@ mod tests {
         }
         prop_assert_eq!(builder.len(), 0);
         prop_assert!(builder.is_empty());
-        prop_assert!(builder.as_slice().is_empty());
+
+        let slice = builder.as_slice();
+        prop_assert!(slice.is_consistent());
+        prop_assert!(slice.is_empty());
+
         // FIXME: Build and check final array once possible
         Ok(())
     }
@@ -372,12 +376,14 @@ mod tests {
         }
         prop_assert_eq!(builder.len(), num_elements);
         prop_assert_eq!(builder.is_empty(), num_elements == 0);
+
         let slice = builder.as_slice();
         prop_assert!(slice.is_consistent());
         prop_assert_eq!(slice.len(), num_elements);
         for (read, written) in slice.iter_cloned().zip(values) {
             prop_assert!(values_eq(read, written));
         }
+
         // FIXME: Build and check final array once possible
         Ok(())
     }
