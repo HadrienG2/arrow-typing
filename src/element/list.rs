@@ -196,7 +196,7 @@ pub trait SublistSlice: Slice {
 
 /// Sublist within [`ListSlice::items`]
 #[doc(hidden)]
-pub trait Sublist: Value + Eq + Hash + PartialEq + PartialOrd {
+pub trait Sublist: Value + Eq + Hash + Ord {
     /// Position of the first item within `ListSlice::items`
     ///
     /// Implementations of this method should be marked `#[inline]`.

@@ -768,7 +768,7 @@ pub unsafe trait PrimitiveType:
     //       ArrayElement<XyzValue<'_> = Self, XyzSlice<'_> = &[Self]> bound to
     //       simplify downstream usage and remove the unsafe contract of
     //       ArrayElement.
-    OptionalElement<BuilderBackend = PrimitiveBuilder<Self::Arrow>, ExtendFromSliceResult = ()> + Debug + From<NativeType<Self>> + Into<NativeType<Self>>
+    OptionalElement<BuilderBackend = PrimitiveBuilder<Self::Arrow>, ExtendFromSliceResult = ()> + From<NativeType<Self>> + Into<NativeType<Self>>
 {
     /// Equivalent Arrow primitive type
     type Arrow: ArrowPrimitiveType + Debug;
