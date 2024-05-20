@@ -79,9 +79,9 @@ impl<T: ArrayElement> TypedBuilder<T> {
     /// assert!(builder.capacity() >= 42);
     /// ```
     //
-    // TODO: Check if I could expose capacity() for the remaining builders that
-    //       don't have it, e.g. GenericListBuilder, so that this can become a
-    //       mandatory operation.
+    // FIXME: Check if I could make arrow expose capacity() for the remaining
+    //        builders that don't have it, e.g. GenericListBuilder, so that this
+    //        can become a mandatory operation.
     pub fn capacity(&self) -> usize
     where
         BuilderBackend<T>: Capacity,
@@ -92,7 +92,7 @@ impl<T: ArrayElement> TypedBuilder<T> {
     /// Access the items builder from a list builder
     ///
     /// This operation is only available on array builders with [list-like
-    /// elements](ListLike). It gives you read-only access the inner builder
+    /// elements](ListLike). It gives you read-only access to the inner builder
     /// which is used to hold the concatenated items from all previously
     /// inserted lists, so that you can perform read operations which are
     /// specific to that item type.
@@ -114,18 +114,31 @@ impl<T: ArrayElement> TypedBuilder<T> {
 
     /// Append a single value into the builder
     ///
+    /// For primitive types, this works just like [`Vec::push()`]. You give it a
+    /// value of the type and it appends it at the end of the array.
+    ///
     /// ```rust
     /// # use arrow_typing::TypedBuilder;
     /// let mut builder = TypedBuilder::<u8>::new();
     /// builder.push(123);
     /// ```
-    //
-    // FIXME: Example with a type where T::Value is less obvious, like List
     ///
-    /// For types with a complex internal structure, such element-wise insertion
-    /// may be inefficient. Therefore, if you intend to insert many values, it
-    /// is advised that you do not do so by calling this method in a loop, but
-    /// instead look into the bulk insertion methods provided below.
+    /// For non-primitive types, however, [the value type accepted by this
+    /// method](ArrayElement::WriteValue) can be a little less obvious. For
+    /// example, to push a new list into a `TypedBuilder<List<P>>` where P is a
+    /// primitive type, you would pass in a `&[P]` slice of that primitive type:
+    ///
+    /// ```rust
+    /// # use arrow_typing::{TypedBuilder, element::list::List};
+    /// let mut builder = TypedBuilder::<List<f32>>::new();
+    /// builder.push(&[1.2, 3.4, 5.6]);
+    /// ```
+    ///
+    /// As far as performance is concerned, note that for types with a more
+    /// complex internal structure, like options or tuples, such element-wise
+    /// insertion may be inefficient. Therefore, if you intend to insert many
+    /// values, it is advised that you do not do so by calling this method in a
+    /// loop, but instead look into the bulk insertion methods provided below.
     #[inline]
     pub fn push(&mut self, value: T::WriteValue<'_>) {
         self.0.push(value)
@@ -145,10 +158,10 @@ impl<T: ArrayElement> TypedBuilder<T> {
     /// ]);
     /// ```
     ///
-    /// For simple types, `T::Slice` is just `&[T]`. But for efficiency reasons,
-    /// slices of more complex types will have a less obvious columnar layout
-    /// containing multiple inner Rust slices. For example, slices of options
-    /// are passed as [`OptionSlice`]s:
+    /// For simple types, `T::WriteSlice` is just `&[T]`. But for efficiency
+    /// reasons, slices of more complex types will have a less obvious columnar
+    /// layout containing multiple inner Rust slices. For example, slices of
+    /// options are passed as [`OptionSlice`]s:
     ///
     /// ```rust
     /// # use arrow_typing::{TypedBuilder, element::option::OptionSlice};
@@ -171,8 +184,8 @@ impl<T: ArrayElement> TypedBuilder<T> {
     /// While extending from a simple Rust slice always succeeds, extending from
     /// composite slice types like `OptionSlice` may fail if the inner subslices
     /// have differing lengths. Accordingly, this method returns `()` when
-    /// `T::Slice` is a simple Rust slice type, but `Result<(), ArrowError>`
-    /// when `T::Slice` is a composite slice type.
+    /// `T::WriteSlice` is a simple Rust slice type, but `Result<(),
+    /// ArrowError>` when `T::WriteSlice` is a composite slice type.
     //
     // FIXME: Add an example with structs once available
     pub fn extend_from_slice(&mut self, s: T::WriteSlice<'_>) -> T::ExtendFromSliceResult {
