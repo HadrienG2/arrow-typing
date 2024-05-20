@@ -113,6 +113,12 @@ impl<T: Clone + Copy + Debug + Default + Send + Sized + Sync> Value for T {}
 /// rarely wrong, it is strongly recommended that implementations of these other
 /// methods start with a `debug_assert!(self.is_consistent())` debug assertion
 /// in order to detect such incorrect usage in testing environments.
+//
+// --- Implementation note ---
+//
+// Whenever you change the definition of this trait (e.g. by adding a method),
+// remember to change the inherent_slice_methods macro at the root of the crate
+// similarly so that the two remain consistent.
 pub trait Slice: Value {
     /// Individual slice element
     type Element: Value;
@@ -191,6 +197,9 @@ pub trait Slice: Value {
     ///
     /// Panics if the slice has less than `mid` elements.
     fn split_at(&self, mid: usize) -> (Self, Self);
+
+    // NOTE: Whenever you add a method to this trait, remember to keep the
+    //       inherent_slice_methods macro at the root of the crate in sync.
 }
 //
 impl<T: Value> Slice for &[T] {
