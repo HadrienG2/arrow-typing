@@ -558,8 +558,8 @@ unsafe impl<Item: ArrayElement, OffsetSize: OffsetSizeTrait> ArrayElement
 //
 // TODO: Once supported, narrow down the bound to ArrayElement<BuilderBackend:
 //       TypedBackend<Self, ExtraConfig = ListConfig<Self::Item>,
-//       AlternateConfig = NoAlternateConfig> + Items and simplify the bounds of
-//       TypedBuilder and BuilderConfig accordingly.
+//       AlternateConfig = NoAlternateConfig> + Items<Item> and simplify the
+//       bounds of TypedBuilder and BuilderConfig accordingly.
 pub trait ListLike: ArrayElement {
     /// List item type
     type Item: ArrayElement;

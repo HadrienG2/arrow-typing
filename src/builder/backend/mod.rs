@@ -23,8 +23,8 @@ pub mod primitive;
 // I should probably start with StructBuilder, then UnionBuilder, and finish
 // with special cases.
 
-use super::BuilderConfig;
-use crate::element::{primitive::OptimizedValiditySlice, ArrayElement, Slice};
+use super::{BuilderBackend, BuilderConfig};
+use crate::element::{list::ListLike, primitive::OptimizedValiditySlice, ArrayElement, Slice};
 use arrow_array::builder::ArrayBuilder;
 use arrow_schema::Field;
 use std::fmt::Debug;
@@ -80,6 +80,11 @@ pub trait TypedBackend<T: ArrayElement>: Backend {
 pub trait Capacity {
     /// Number of elements the builder can hold without reallocating
     fn capacity(&self) -> usize;
+}
+
+/// Access the inner items from a GenericListBuilder
+pub trait Items<T: ListLike>: TypedBackend<T> {
+    fn items(&self) -> &BuilderBackend<T::Item>;
 }
 
 /// Marker type denoting absence of alternate configuration methods

@@ -1,9 +1,9 @@
 //! Strong typing layer on top of [`GenericListBuilder`]
 
-use super::{Backend, NoAlternateConfig, TypedBackend};
+use super::{Backend, Items, NoAlternateConfig, TypedBackend};
 use crate::{
     bitmap::Bitmap,
-    builder::BuilderConfig,
+    builder::{BuilderBackend, BuilderConfig},
     element::{
         list::{
             List, ListReadSlice, ListSlice, ListWriteSlice, OffsetSublists, OptionListReadSlice,
@@ -180,6 +180,14 @@ impl<OffsetSize: OffsetSizeTrait, Item: ArrayElement> TypedBackend<List<Item, Of
     }
 }
 
+impl<OffsetSize: OffsetSizeTrait, Item: ArrayElement> Items<List<Item, OffsetSize>>
+    for GenericListBuilder<OffsetSize, Item::BuilderBackend>
+{
+    fn items(&self) -> &Item::BuilderBackend {
+        self.values_ref()
+    }
+}
+
 impl<OffsetSize: OffsetSizeTrait, Item: ArrayElement> TypedBackend<Option<List<Item, OffsetSize>>>
     for GenericListBuilder<OffsetSize, Item::BuilderBackend>
 {
@@ -215,6 +223,16 @@ impl<OffsetSize: OffsetSizeTrait, Item: ArrayElement> TypedBackend<Option<List<I
                 values: OffsetSublists::new(self.offsets_slice(), self.values_ref().len()),
             },
         }
+    }
+}
+
+impl<OffsetSize: OffsetSizeTrait, Item: ArrayElement> Items<Option<List<Item, OffsetSize>>>
+    for GenericListBuilder<OffsetSize, Item::BuilderBackend>
+where
+    Option<Item>: ArrayElement,
+{
+    fn items(&self) -> &BuilderBackend<Item> {
+        self.values_ref()
     }
 }
 

@@ -3,10 +3,11 @@
 pub(crate) mod backend;
 mod config;
 
-use self::backend::{Backend, Capacity, TypedBackend};
+use self::backend::{Backend, Capacity, Items, TypedBackend};
 #[cfg(doc)]
 use crate::element::option::OptionSlice;
 use crate::element::{
+    list::ListLike,
     option::{NullableElement, OptionalElement},
     ArrayElement,
 };
@@ -15,6 +16,7 @@ use std::fmt::Debug;
 
 /// Builder for an array whose elements are of type `T`
 #[derive(Debug)]
+#[repr(transparent)]
 pub struct TypedBuilder<T: ArrayElement>(BuilderBackend<T>);
 //
 /// The following constructors are only available for simple element types like
@@ -76,11 +78,38 @@ impl<T: ArrayElement> TypedBuilder<T> {
     /// let builder = TypedBuilder::<bool>::with_capacity(42);
     /// assert!(builder.capacity() >= 42);
     /// ```
+    //
+    // TODO: Check if I could expose capacity() for the remaining builders that
+    //       don't have it, e.g. GenericListBuilder, so that this can become a
+    //       mandatory operation.
     pub fn capacity(&self) -> usize
     where
         BuilderBackend<T>: Capacity,
     {
         self.0.capacity()
+    }
+
+    /// Access the items builder from a list builder
+    ///
+    /// This operation is only available on array builders with [list-like
+    /// elements](ListLike). It gives you read-only access the inner builder
+    /// which is used to hold the concatenated items from all previously
+    /// inserted lists, so that you can perform read operations which are
+    /// specific to that item type.
+    //
+    // TODO: Add an example once I have a backend with an interesting read-only
+    //       accessor. Or if all else fails, just use capacity().
+    pub fn items(&self) -> &TypedBuilder<T::Item>
+    where
+        T: ListLike,
+        // TODO: Remove once implied by ListLike
+        BuilderBackend<T>: Items<T>,
+    {
+        // SAFETY: This is safe because TypedBuilder is a repr(transparent)
+        //         newtype of the underlying BuilderBackend.
+        unsafe {
+            std::mem::transmute::<&BuilderBackend<T::Item>, &TypedBuilder<T::Item>>(self.0.items())
+        }
     }
 
     /// Append a single value into the builder
@@ -96,7 +125,7 @@ impl<T: ArrayElement> TypedBuilder<T> {
     /// For types with a complex internal structure, such element-wise insertion
     /// may be inefficient. Therefore, if you intend to insert many values, it
     /// is advised that you do not do so by calling this method in a loop, but
-    /// instead look into the bulk insertion methods below.
+    /// instead look into the bulk insertion methods provided below.
     #[inline]
     pub fn push(&mut self, value: T::WriteValue<'_>) {
         self.0.push(value)
