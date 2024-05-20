@@ -52,8 +52,8 @@ pub struct ListConfig<Item: ArrayElement> {
 }
 //
 impl<Item: ArrayElement> ListConfig<Item> {
-    /// Get the appropriate `Field` to use for this list
-    fn make_field(&self) -> Field {
+    /// Get the appropriate `Field` to use for this list's items
+    fn make_item_field(&self) -> Field {
         Item::BuilderBackend::make_field(
             &self.item_config,
             self.item_name
@@ -126,10 +126,10 @@ macro_rules! typed_backend_common {
 
         fn make_field(config: &BuilderConfig<$element_type>, name: String) -> Field {
             let (_capacity, list_config) = into_capacity_and_list_config!(config);
-            let field: FieldRef = list_config.make_field().into();
+            let item_field: FieldRef = list_config.make_item_field().into();
             let data_type = match std::mem::size_of::<OffsetSize>() {
-                4 => DataType::List(field),
-                8 => DataType::LargeList(field),
+                4 => DataType::List(item_field),
+                8 => DataType::LargeList(item_field),
                 _ => unreachable!(),
             };
             Field::new(name, data_type, $is_option)
@@ -137,14 +137,14 @@ macro_rules! typed_backend_common {
 
         fn new(config: BuilderConfig<$element_type>) -> Self {
             let (capacity, list_config) = into_capacity_and_list_config!(config);
-            let field = list_config.make_field();
+            let item_field = list_config.make_item_field();
             let items_builder = Item::BuilderBackend::new(list_config.item_config);
             let list_builder = if let Some(capacity) = capacity {
                 Self::with_capacity(items_builder, capacity)
             } else {
                 Self::new(items_builder)
             };
-            list_builder.with_field(field)
+            list_builder.with_field(item_field)
         }
     };
 }
