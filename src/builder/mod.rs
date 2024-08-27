@@ -92,13 +92,16 @@ impl<T: ArrayElement> TypedBuilder<T> {
     /// Access the items builder from a list builder
     ///
     /// This operation is only available on array builders with [list-like
-    /// elements](ListLike). It gives you read-only access to the inner builder
-    /// which is used to hold the concatenated items from all previously
-    /// inserted lists, so that you can perform read operations which are
-    /// specific to that item type.
+    /// elements](ListLike). It gives you read-only access to the inner item
+    /// builder, which is used to hold the concatenated items from all
+    /// previously inserted lists. This way, you can use specialized readout
+    /// operations that are only available for your specific list item type.
     //
     // TODO: Add an example once I have a backend with an interesting read-only
     //       accessor. Or if all else fails, just use capacity().
+    ///
+    /// If you want to write into the inner items builder, use
+    /// [`start_pushing()`](Self::start_pushing).
     pub fn items(&self) -> &TypedBuilder<T::Item>
     where
         T: ListLike,
@@ -142,6 +145,44 @@ impl<T: ArrayElement> TypedBuilder<T> {
     #[inline]
     pub fn push(&mut self, value: T::WriteValue<'_>) {
         self.0.push(value)
+    }
+
+    /// Start appending structured values via direct sub-builder access
+    ///
+    /// This operation is available when building arrays whose elements are
+    /// composed of multiple sub-elements, as is the case for lists or tuples.
+    /// It gives you write access to the inner [`TypedBuilder`]s used to insert
+    /// these sub-elements, and thus lets you leverage specialized insertion
+    /// methods that are only available for the specific sub-element type(s)
+    /// that you are dealing with.
+    ///
+    /// For example, given a tuple array builder `TypedBuilder<(T, U)>`, this
+    /// method lets you access the inner tuple of field builders `(&mut
+    /// TypedBuilder<T>, &mut TypedBuilder<U>)`, for the purpose of inserting
+    /// inner `(T, U)` tuples using the most efficient specialized insertion
+    /// methods available for the concrete field types `T` and `U` that you are
+    /// dealing with.
+    //
+    // TODO: Add a code example once I have struct builders
+    ///
+    /// In exchange for the extra performance optimization power that direct
+    /// sub-builder access provides, you become responsible for maintaining the
+    /// integrity constraints of the overarching structured array type. For
+    /// example, a `TypedBuilder<(T, U)>` operates under the integrity
+    /// constraint that the inner `TypedBuilder<T>` and `TypedBuilder<U>` field
+    /// builders must contain the same number of elements. If your attempt to
+    /// use `start_pushing()` in a manner which breaks this constraint, it will
+    /// lead to a panic at the end of the transaction.
+    ///
+    /// See the documentation of [`Pusher`] for more information about how the
+    /// object returned by this method should be used.
+    pub fn start_pushing(&mut self) -> Pusher<T>
+    where
+        // TODO: Add StructuredElement trait to crate::element and make it a
+        //       bound of the ListLike trait.
+        T: StructuredElement,
+    {
+        Pusher::new(&mut self.0)
     }
 
     /// Efficiently append multiple values into the builder
